@@ -27,6 +27,15 @@
         sim.state.pooledMemoryNodes = Number(pooledNodesInput.max);
       }
     }
+    ["prefillNodes", "decodeNodes"].forEach((id) => {
+      const input = document.getElementById(id);
+      if (input) {
+        input.max = String(sim.state.deviceCount);
+        if (sim.state[id] > sim.state.deviceCount) {
+          sim.state[id] = sim.state.deviceCount;
+        }
+      }
+    });
 
     sim.rangeIds.forEach((id) => {
       const input = document.getElementById(id);
@@ -352,6 +361,136 @@
     `;
   }
 
+  function renderAbi(abi) {
+    document.getElementById("abiSummary").innerHTML = `
+      <div class="sharedStat"><span>ABI mode</span><strong>${abi.mode}</strong></div>
+      <div class="sharedStat"><span>Handles</span><strong>${abi.handles.length}</strong></div>
+      <div class="sharedStat"><span>Commands</span><strong>${abi.commands.length}</strong></div>
+    `;
+    document.getElementById("abiTable").innerHTML = `
+      <div class="directoryHeader">
+        <span>Handle</span><span>Type</span><span>Tier</span><span>Contract</span><span>VAddr</span><span>Placement</span><span>Flags</span><span>Replay</span><span></span>
+      </div>
+      ${abi.handles.map((handle) => `
+        <div class="directoryRow">
+          <span>${handle.handleId}</span>
+          <span>${handle.objectType}</span>
+          <span>${handle.residencyTier}</span>
+          <span>${handle.residencyContract}</span>
+          <span>${handle.virtualAddress}</span>
+          <span>${handle.physicalPlacement}</span>
+          <span>${handle.schedulingFlags}</span>
+          <span>${handle.replayFlags}</span>
+          <span></span>
+        </div>
+      `).join("")}
+    `;
+  }
+
+  function renderPaging(paging) {
+    document.getElementById("pagingSummary").innerHTML = `
+      <div class="sharedStat"><span>Layout mode</span><strong>${paging.mode}</strong></div>
+      <div class="sharedStat"><span>Virtual pages</span><strong>${paging.totalVirtualPages}</strong></div>
+      <div class="sharedStat"><span>Page bytes</span><strong>${bytesToHuman(paging.pageBytes)}</strong></div>
+      <div class="sharedStat"><span>Remaps</span><strong>${paging.remapCount}</strong></div>
+    `;
+    document.getElementById("pagingTable").innerHTML = `
+      <div class="directoryHeader">
+        <span>Page</span><span>Logical</span><span>VAddr</span><span>Placement</span><span>Residency</span><span>Migratable</span><span></span><span></span><span></span>
+      </div>
+      ${paging.pageTable.slice(0, 12).map((page) => `
+        <div class="directoryRow">
+          <span>${page.pageId}</span>
+          <span>${page.logicalRange}</span>
+          <span>${page.virtualAddress}</span>
+          <span>${page.physicalPlacement}</span>
+          <span>${page.residency}</span>
+          <span>${page.migratable ? "yes" : "no"}</span>
+          <span></span><span></span><span></span>
+        </div>
+      `).join("")}
+    `;
+  }
+
+  function renderCompilerPlan(plan) {
+    document.getElementById("compilerPlanSummary").innerHTML = `
+      <div class="sharedStat"><span>Planning mode</span><strong>${plan.mode}</strong></div>
+      <div class="sharedStat"><span>Execution regions</span><strong>${plan.regions.length}</strong></div>
+      <div class="sharedStat"><span>Checkpoints</span><strong>${plan.checkpoints.length}</strong></div>
+      <div class="sharedStat"><span>DMA schedule entries</span><strong>${plan.dmaSchedule.length}</strong></div>
+    `;
+    const svg = document.getElementById("compilerPlanSvg");
+    svg.innerHTML = plan.planNodes.map((node, index) => {
+      const x = 40 + index * 270;
+      return `
+        <g class="archBlock">
+          <rect x="${x}" y="70" width="220" height="90" rx="18"></rect>
+          <text x="${x + 16}" y="100">${node.name}</text>
+          <text x="${x + 16}" y="122" class="archSub">${node.type} | ${node.residency}</text>
+          <text x="${x + 16}" y="144" class="archSub">t${node.start} - t${node.end}</text>
+        </g>
+        ${index < plan.planNodes.length - 1 ? `<line class="archLine" x1="${x + 220}" y1="115" x2="${x + 270}" y2="115" marker-end="url(#arrow)"></line>` : ""}
+      `;
+    }).join("");
+  }
+
+  function renderLaunch(launch) {
+    document.getElementById("launchSummary").innerHTML = `
+      <div class="sharedStat"><span>Graph mode</span><strong>${launch.mode}</strong></div>
+      <div class="sharedStat"><span>Graph reuse</span><strong>${launch.graphReuse}</strong></div>
+      <div class="sharedStat"><span>Invalidations</span><strong>${launch.graphInvalidations}</strong></div>
+      <div class="sharedStat"><span>Dynamic fallbacks</span><strong>${launch.dynamicFallbacks}</strong></div>
+    `;
+    document.getElementById("launchTable").innerHTML = launch.launches.map((row) => `
+      <div class="stackItem">
+        <strong>Wave ${row.wave}: ${row.attentionKernel} + ${row.decodeKernel}</strong>
+        <span>${row.dmaOverlap ? "DMA overlap enabled" : "DMA overlap disabled"} | barrier ${row.barrier}</span>
+        <span>Orchestration bubble ${row.bubbleCost}</span>
+      </div>
+    `).join("");
+  }
+
+  function renderIntegration(integration) {
+    document.getElementById("integrationSummary").innerHTML = `
+      <div class="sharedStat"><span>Prefill nodes</span><strong>${integration.prefillNodes.join(", ")}</strong></div>
+      <div class="sharedStat"><span>Decode nodes</span><strong>${integration.decodeNodes.join(", ")}</strong></div>
+      <div class="sharedStat"><span>KV transfer cost</span><strong>${formatNumber(integration.kvTransferCost, 1)}</strong></div>
+      <div class="sharedStat"><span>Migration amplification</span><strong>${formatNumber(integration.migrationAmplification, 2)}x</strong></div>
+      <div class="sharedStat"><span>Replay stability</span><strong>${formatNumber(integration.replayStability, 1)}%</strong></div>
+    `;
+    document.getElementById("integrationStack").innerHTML = integration.stackLayers.map((layer, index) => `
+      <div class="stackItem">
+        <strong>${index + 1}. ${layer}</strong>
+        <span>${index === 0 ? "Compile execution regions and residency plans." : index === 1 ? "Issue orchestration commands and ABI transitions." : index === 2 ? "Place decode and prefill work." : "Coordinate dataflow through the stack."}</span>
+      </div>
+    `).join("");
+  }
+
+  function renderLifetimes(lifetimes) {
+    document.getElementById("lifetimeSummary").innerHTML = `
+      <div class="sharedStat"><span>Lifetime rows</span><strong>${lifetimes.rows.length}</strong></div>
+      <div class="sharedStat"><span>Replay-safe rows</span><strong>${lifetimes.replaySafeRows}</strong></div>
+      <div class="sharedStat"><span>Reclaim hazards</span><strong>${lifetimes.reclaimHazards}</strong></div>
+    `;
+    document.getElementById("lifetimeTable").innerHTML = `
+      <div class="directoryHeader">
+        <span>Entry</span><span>Create</span><span>Active until</span><span>Replay-safe</span><span>Reclaim</span><span>Spec invalid</span><span>Migratable</span><span></span><span></span>
+      </div>
+      ${lifetimes.rows.map((row) => `
+        <div class="directoryRow">
+          <span>${row.entryId}</span>
+          <span>${row.createdAt}</span>
+          <span>${row.activeUntil}</span>
+          <span>${row.replaySafeUntil}</span>
+          <span>${row.reclaimEligibleAt}</span>
+          <span>${row.speculativeInvalidation ? "yes" : "no"}</span>
+          <span>${row.migrationEligible ? "yes" : "no"}</span>
+          <span></span><span></span>
+        </div>
+      `).join("")}
+    `;
+  }
+
   function renderSharedPrefix(sharedMetrics, sessions) {
     document.getElementById("sharedPrefixPanel").innerHTML = `
       <div class="sharedStat"><span>Attached sessions</span><strong>${sessions.filter((session) => session.attachedSharedPrefix).length}</strong></div>
@@ -650,6 +789,8 @@
     const container = document.getElementById(containerId);
     const header = containerId === "evictionComparison"
       ? `<div class="benchmarkHeader benchmarkHeaderTight"><span>Policy</span><span>Promotion churn</span><span>Thrash rate</span><span>Latency</span><span>DMA traffic</span><span>Cache stability</span><span>Notes</span></div>`
+      : containerId === "runtimeComparisonTable"
+        ? `<div class="benchmarkHeader"><span>Model</span><span>Promoted tokens</span><span>Promoted heads</span><span>Promoted layers</span><span>SRAM bytes used</span><span>SRAM budget %</span><span>HBM reads avoided</span><span>Latency cost</span><span>Speedup</span><span>Notes</span></div>`
       : `<div class="benchmarkHeader"><span>Mode</span><span>Promoted tokens</span><span>Promoted heads</span><span>Promoted layers</span><span>SRAM bytes used</span><span>SRAM budget %</span><span>HBM reads avoided</span><span>Latency cost</span><span>Speedup</span><span>Notes</span></div>`;
     const body = containerId === "evictionComparison"
       ? rows.map((row) => `
@@ -666,15 +807,15 @@
       : rows.map((row) => `
           <div class="benchmarkRow ${row.granularity === sim.state.promotionGranularity ? "highlight" : ""}">
             <span><strong>${row.name}</strong></span>
-            <span>${formatNumber(row.promotedTokens, 0)}</span>
-            <span>${formatNumber(row.promotedHeads, 0)}</span>
-            <span>${formatNumber(row.promotedLayers, 0)}</span>
-            <span>${bytesToHuman(row.sramBytesUsed)}</span>
-            <span>${formatNumber(row.sramBudgetPercent, 1)}%</span>
-            <span>${formatNumber(row.hbmReadsAvoided, 1)}</span>
-            <span>${formatNumber(row.latencyCost, 1)}</span>
-            <span>${formatNumber(row.relativeSpeedup, 2)}x</span>
-            <span>${row.notes}</span>
+            <span>${formatNumber(row.promotedTokens ?? row.routingDeterminism ?? 0, 0)}</span>
+            <span>${formatNumber(row.promotedHeads ?? row.fragmentation ?? 0, 0)}</span>
+            <span>${formatNumber(row.promotedLayers ?? row.replayStability ?? 0, 0)}</span>
+            <span>${row.sramBytesUsed !== undefined ? bytesToHuman(row.sramBytesUsed) : formatNumber(row.dmaTraffic, 1)}</span>
+            <span>${formatNumber(row.sramBudgetPercent ?? row.residencyEfficiency ?? 0, 1)}${row.sramBudgetPercent !== undefined ? "%" : ""}</span>
+            <span>${formatNumber(row.hbmReadsAvoided ?? row.orchestrationOverhead ?? 0, 1)}</span>
+            <span>${formatNumber(row.latencyCost ?? row.routingDeterminism ?? 0, 1)}</span>
+            <span>${row.relativeSpeedup !== undefined ? `${formatNumber(row.relativeSpeedup, 2)}x` : `${formatNumber(row.replayStability, 1)}%`}</span>
+            <span>${row.notes ?? "Comparison surface"}</span>
           </div>
         `).join("");
     container.innerHTML = header + body;
@@ -756,7 +897,7 @@
       <div class="stackItem">
         <strong>${status.valid ? "Trace loaded" : "Trace error"}</strong>
         <span>${status.message || ""}</span>
-        ${status.summary ? `<span>${status.summary.eventCount} events | ${status.summary.sessionCount} sessions | avg sink ${status.summary.averageSink.toFixed(3)}</span>` : ""}
+        ${status.summary ? `<span>${status.summary.eventCount} events | ${status.summary.sessionCount} sessions | ${status.summary.averageSink !== undefined ? `avg sink ${status.summary.averageSink.toFixed(3)}` : `schema ${status.summary.schema || "runtime"}`}</span>` : ""}
       </div>
     `;
   }
@@ -882,8 +1023,10 @@
       evictionComparison,
     });
     const fragmentation = sim.fragmentation.build(directory, partitions);
+    const paging = sim.paging.build(model, directory, fragmentation, distributedRouting);
     const scheduler = sim.scheduler.build(topology, fabric, pooling, sessions, distributedRouting);
     const migration = sim.migration.build(topology, fabric, directory, scheduler);
+    const compilerPlan = sim.compiler.build({ dma, sharedMetrics });
     const orchestrator = sim.orchestrator.build({
       model,
       sessions,
@@ -905,6 +1048,9 @@
       routing,
       sessions,
     });
+    const abi = sim.abi.build({ directory, dma, sharedMetrics });
+    const launch = sim.launch.build({ speculative, dma });
+    const lifetimes = sim.lifetimes.build({ directory });
     const economics = sim.economics.build({
       topology,
       fabric,
@@ -912,6 +1058,12 @@
       distributedRouting,
       pooling,
       metricsSummary: { effectiveSramAmplification: directory.entries.length ? sim.computeKvBytes(model) / Math.max(1, directory.entries.reduce((sum, entry) => sum + entry.bytes, 0)) : 0 },
+    });
+    const integration = sim.integration.build({
+      topology,
+      distributedRouting,
+      migration,
+      metricsSummary: { routingDeterminism: 86 },
     });
     const timeline = sim.timeline.buildEvents(sessions, directory, dma, routing, speculative, promotedHeads.map((head) => head.id));
     const architectureState = buildArchitectureState({ directory, dma, routing, orchestrator, topology, fabric, distributedRouting });
@@ -948,6 +1100,8 @@
       pooling,
       energy,
       economics,
+      paging,
+      launch,
     });
 
     const snapshot = {
@@ -958,6 +1112,8 @@
       promotedHeads,
       directory,
       sharedMetrics,
+      abi,
+      paging,
       topology,
       fabric,
       dma,
@@ -971,6 +1127,10 @@
       evictionComparison,
       partitions,
       fragmentation,
+      compilerPlan,
+      launch,
+      lifetimes,
+      integration,
       scheduler,
       migration,
       orchestrator,
@@ -996,6 +1156,12 @@
     renderFabricAndDistributedRouting(snapshot.fabric, snapshot.distributedRouting);
     renderPoolingAndScheduler(snapshot.pooling, snapshot.scheduler, snapshot.migration);
     renderEnergyAndEconomics(snapshot.energy, snapshot.economics);
+    renderAbi(snapshot.abi);
+    renderPaging(snapshot.paging);
+    renderCompilerPlan(snapshot.compilerPlan);
+    renderLaunch(snapshot.launch);
+    renderIntegration(snapshot.integration);
+    renderLifetimes(snapshot.lifetimes);
     renderHeadProfiles(snapshot.headProfiles);
     renderHeatmap(snapshot.headProfiles, snapshot.layerBuckets);
     renderEfficiency(snapshot.model, snapshot.promotedHeads);
@@ -1016,6 +1182,19 @@
     renderTelemetry(snapshot.telemetry, snapshot.metricsSummary);
     renderBenchmarkTable(snapshot.evictionComparison, "evictionComparison");
     renderBenchmarkTable(snapshot.benchmarkComparison, "benchmarkTable");
+    renderBenchmarkTable(snapshot.paging.comparison.map((row) => ({
+      name: row.name,
+      granularity: row.name,
+      promotedTokens: row.routingDeterminism,
+      promotedHeads: row.fragmentation,
+      promotedLayers: row.replayStability,
+      sramBytesUsed: row.dmaTraffic * 1024,
+      sramBudgetPercent: row.residencyEfficiency,
+      hbmReadsAvoided: row.orchestrationOverhead,
+      latencyCost: row.routingDeterminism,
+      relativeSpeedup: row.replayStability / 100,
+      notes: "Research comparison model",
+    })), "runtimeComparisonTable");
     updateSummary(snapshot);
   }
 
@@ -1067,8 +1246,8 @@
       "bandwidth-optimized",
       "latency-optimized",
       "tenant-fairness-optimized",
-      "speculative-heavy",
       "sink-stability-optimized",
+      "deterministic-residency-optimized",
     ];
     const results = sim.experiments.comparePolicies(policies, computeSnapshot);
     renderExperimentResults(results);
@@ -1127,25 +1306,42 @@
 
   function loadTrace() {
     const text = document.getElementById("traceInput").value.trim();
-    const status = sim.replay.importTrace(text);
+    const status = sim.state.traceSchema === "scheduler-events" ? sim.replay.importTrace(text) : sim.traces.importRuntimeTrace(text);
     if (status.valid) {
-      status.summary = sim.replay.buildReplaySummary(sim.memory.importedTrace);
+      status.summary = sim.state.traceSchema === "scheduler-events"
+        ? sim.replay.buildReplaySummary(sim.memory.importedTrace)
+        : sim.traces.summarize(sim.memory.importedRuntimeTrace);
     }
     renderTraceStatus(status);
     renderResultHistory();
   }
 
   function replayTrace() {
-    if (!sim.memory.importedTrace) {
+    const hasSchedulerTrace = sim.memory.importedTrace && sim.state.traceSchema === "scheduler-events";
+    const hasRuntimeTrace = sim.memory.importedRuntimeTrace && sim.state.traceSchema !== "scheduler-events";
+    if (!hasSchedulerTrace && !hasRuntimeTrace) {
       renderTraceStatus({ valid: false, message: "Load a trace first." });
       return;
     }
-    sim.memory.overrideTimeline = sim.replay.toTimeline(sim.memory.importedTrace);
+    sim.memory.overrideTimeline = hasSchedulerTrace
+      ? sim.replay.toTimeline(sim.memory.importedTrace)
+      : sim.memory.importedRuntimeTrace.map((event, index) => ({
+        stage: event.eventType,
+        timestamp: event.timestamp ?? index,
+        sessionId: event.sessionId,
+        tokenRange: `${event.tokenId}-${event.tokenId}`,
+        headsAffected: `${event.head}`,
+        layerRange: `${event.layer}-${event.layer}`,
+        bytesMoved: sim.computeVirtualPageBytes(sim.memory.lastRun.model),
+        sourceTier: event.reusedPrefix ? "shared-prefix" : "runtime",
+        destinationTier: event.accepted ? "decode-graph" : "fallback",
+        estimatedLatency: event.attentionWeight * sim.state.hbmLatency,
+      }));
     sim.memory.timelineCursor = 0;
     renderTraceStatus({
       valid: true,
       message: "Trace replay timeline loaded.",
-      summary: sim.replay.buildReplaySummary(sim.memory.importedTrace),
+      summary: hasSchedulerTrace ? sim.replay.buildReplaySummary(sim.memory.importedTrace) : sim.traces.summarize(sim.memory.importedRuntimeTrace),
     });
     rerenderTimelineLinkedViews();
   }
@@ -1165,6 +1361,7 @@
     const arch = document.getElementById("architectureSvg");
     const micro = document.getElementById("microarchitectureSvg");
     const topo = document.getElementById("topologySvg");
+    const compilerPlan = document.getElementById("compilerPlanSvg");
     const downloadSvg = (element, name) => {
       const link = document.createElement("a");
       link.href = URL.createObjectURL(new Blob([element.outerHTML], { type: "image/svg+xml" }));
@@ -1174,6 +1371,7 @@
     downloadSvg(arch, "paper-figure-architecture.svg");
     downloadSvg(micro, "paper-figure-microarchitecture.svg");
     downloadSvg(topo, "paper-figure-distributed-topology.svg");
+    downloadSvg(compilerPlan, "paper-figure-compiler-plan.svg");
   }
 
   function runSimulation() {

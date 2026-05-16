@@ -51,6 +51,18 @@
     multicastFanout: 3,
     energyMode: "balanced",
     costMode: "throughput-optimized",
+    kvLayoutMode: "hybrid-residency",
+    compilerPlanningMode: "adaptive",
+    runtimeAbiMode: "explicit-handles",
+    graphExecutionMode: "captured-windows",
+    traceSchema: "scheduler-events",
+    prefillNodes: 2,
+    decodeNodes: 4,
+    pageSizeTokens: 16,
+    virtualPageCount: 48,
+    graphWindowSize: 6,
+    compilerFeedbackDepth: 3,
+    orchestrationBarrierCost: 2,
     traceReplaySpeed: 1,
     timelineSpeed: 1,
     directorySort: "score",
@@ -93,6 +105,13 @@
     "fabricBandwidth",
     "fabricLinkLatency",
     "multicastFanout",
+    "prefillNodes",
+    "decodeNodes",
+    "pageSizeTokens",
+    "virtualPageCount",
+    "graphWindowSize",
+    "compilerFeedbackDepth",
+    "orchestrationBarrierCost",
     "seed",
   ];
 
@@ -109,6 +128,11 @@
     "distributedPlacementPolicy",
     "energyMode",
     "costMode",
+    "kvLayoutMode",
+    "compilerPlanningMode",
+    "runtimeAbiMode",
+    "graphExecutionMode",
+    "traceSchema",
     "bytesPerElement",
     "timelineSpeed",
     "traceReplaySpeed",
@@ -160,6 +184,7 @@
     lastRun: null,
     telemetryHistory: [],
     stressEvents: {},
+    importedRuntimeTrace: null,
   };
 
   sim.deviceProfiles = {
@@ -252,6 +277,10 @@
 
   sim.computeKvBytes = function computeKvBytes(model) {
     return 2 * model.layers * model.kvHeads * model.headDim * model.bytesPerElement;
+  };
+
+  sim.computeVirtualPageBytes = function computeVirtualPageBytes(model) {
+    return 2 * Math.max(1, sim.state.pageSizeTokens) * model.kvHeads * model.headDim * model.bytesPerElement;
   };
 
   sim.computePromotionBytes = function computePromotionBytes(model, policy, promotedHeadCount, granularity) {

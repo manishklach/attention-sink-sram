@@ -39,6 +39,12 @@
         dmaTrace: run.dma.descriptors,
         routingTable: run.routing.rows,
         distributedRouting: run.distributedRouting,
+        abi: run.abi,
+        paging: run.paging,
+        compilerPlan: run.compilerPlan,
+        launch: run.launch,
+        lifetimes: run.lifetimes,
+        integration: run.integration,
         topology: run.topology,
         fabric: run.fabric,
         pooling: run.pooling,
@@ -69,6 +75,12 @@
       const energyJson = JSON.stringify(run.energy, null, 2);
       const economicsJson = JSON.stringify(run.economics, null, 2);
       const benchmarkJson = JSON.stringify(run.benchmarkComparison, null, 2);
+      const abiJson = JSON.stringify(run.abi, null, 2);
+      const pagingJson = JSON.stringify(run.paging, null, 2);
+      const compilerJson = JSON.stringify(run.compilerPlan, null, 2);
+      const launchJson = JSON.stringify(run.launch, null, 2);
+      const lifetimesJson = JSON.stringify(run.lifetimes, null, 2);
+      const integrationJson = JSON.stringify(run.integration, null, 2);
       const snapshotJson = JSON.stringify(snapshot, null, 2);
       const csvRows = [
         ["sessionId", "step", "decision", "sramHits", "hbmFallback", "latency"],
@@ -94,11 +106,19 @@
       downloadText("migration-trace.json", migrationJson, "application/json");
       downloadText("energy-report.json", energyJson, "application/json");
       downloadText("cost-performance-report.json", economicsJson, "application/json");
+      downloadText("runtime-abi.json", abiJson, "application/json");
+      downloadText("virtual-kv-map.json", pagingJson, "application/json");
+      downloadText("compiler-plan.json", compilerJson, "application/json");
+      downloadText("launch-orchestration.json", launchJson, "application/json");
+      downloadText("lifetime-analysis.json", lifetimesJson, "application/json");
+      downloadText("runtime-integration.json", integrationJson, "application/json");
       downloadText("routing-statistics.csv", csvRows, "text/csv");
       downloadText("telemetry-dump.json", telemetryJson, "application/json");
       downloadText("benchmark-report.json", benchmarkJson, "application/json");
       downloadText("architecture-view.svg", document.getElementById("architectureSvg").outerHTML, "image/svg+xml");
       downloadText("microarchitecture-view.svg", document.getElementById("microarchitectureSvg").outerHTML, "image/svg+xml");
+      downloadText("compiler-plan.svg", document.getElementById("compilerPlanSvg").outerHTML, "image/svg+xml");
+      downloadText("topology-view.svg", document.getElementById("topologySvg").outerHTML, "image/svg+xml");
     },
   };
 })();

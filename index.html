@@ -3,23 +3,22 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Attention-Sink SRAM Research and Evaluation Platform</title>
+  <title>KV Memory Orchestrator</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="page">
     <section class="hero">
-      <div class="eyebrow">Trace-Driven Research Platform</div>
-      <h1>Attention-Sink-Aware SRAM Placement of Transformer KV State</h1>
+      <div class="eyebrow">Compiler / Runtime Research Platform</div>
+      <h1>KV Memory Orchestrator</h1>
       <p class="lede">
-        This browser-native platform extends the architecture simulator into a deterministic research and
-        evaluation environment: trace replay, parameter sweeps, policy comparison, publication-style figures,
-        workload suites, and exportable experiment artifacts are all modeled around SRAM-aware transformer KV orchestration.
+        This browser-native platform explores deterministic KV orchestration, runtime ABI design, compiler execution plans,
+        graph replay, virtualized KV placement, and distributed memory-tier residency for future transformer inference systems.
       </p>
       <div class="heroMeta">
         <span>Indian application: <strong>202641062302</strong></span>
         <span>Filed in India</span>
-        <span>Focus: reproducible experimentation + runtime control plane</span>
+        <span>Focus: compiler/runtime coordination + deterministic memory orchestration</span>
       </div>
     </section>
 
@@ -81,6 +80,50 @@
             <option value="bandwidth-aware">Bandwidth-aware</option>
             <option value="pooled-memory-optimized">Pooled-memory optimized</option>
             <option value="sink-density-optimized">Sink-density optimized</option>
+          </select>
+        </label>
+
+        <label>
+          <span>KV layout mode</span>
+          <select id="kvLayoutMode">
+            <option value="contiguous-kv">Contiguous KV</option>
+            <option value="pagedattention">PagedAttention-style paging</option>
+            <option value="vattention">vAttention-style remapping</option>
+            <option value="sink-aware-residency">Sink-aware residency orchestration</option>
+            <option value="hybrid-residency">Hybrid paging + deterministic residency</option>
+          </select>
+        </label>
+        <label>
+          <span>Compiler planning mode</span>
+          <select id="compilerPlanningMode">
+            <option value="static">Static planning</option>
+            <option value="adaptive">Adaptive planning</option>
+            <option value="feedback-driven">Feedback-driven planning</option>
+          </select>
+        </label>
+        <label>
+          <span>Runtime ABI mode</span>
+          <select id="runtimeAbiMode">
+            <option value="explicit-handles">Explicit handles</option>
+            <option value="implicit-contracts">Implicit contracts</option>
+            <option value="graph-bound">Graph-bound objects</option>
+          </select>
+        </label>
+        <label>
+          <span>Graph execution mode</span>
+          <select id="graphExecutionMode">
+            <option value="captured-windows">Captured windows</option>
+            <option value="bounded-replay">Bounded replay</option>
+            <option value="dynamic-fallback">Dynamic fallback</option>
+          </select>
+        </label>
+        <label>
+          <span>Trace schema</span>
+          <select id="traceSchema">
+            <option value="scheduler-events">Scheduler event traces</option>
+            <option value="vllm-kv-activity">vLLM-like KV activity</option>
+            <option value="paged-kv-allocations">Paged KV allocations</option>
+            <option value="memory-residency">Memory residency traces</option>
           </select>
         </label>
 
@@ -329,6 +372,41 @@
           <input id="sharedPoolPercent" type="range" min="0" max="60" value="24">
           <strong id="sharedPoolPercentValue">24</strong>
         </label>
+        <label>
+          <span>Prefill nodes</span>
+          <input id="prefillNodes" type="range" min="1" max="6" value="2">
+          <strong id="prefillNodesValue">2</strong>
+        </label>
+        <label>
+          <span>Decode nodes</span>
+          <input id="decodeNodes" type="range" min="1" max="8" value="4">
+          <strong id="decodeNodesValue">4</strong>
+        </label>
+        <label>
+          <span>Page size (tokens)</span>
+          <input id="pageSizeTokens" type="range" min="4" max="64" step="4" value="16">
+          <strong id="pageSizeTokensValue">16</strong>
+        </label>
+        <label>
+          <span>Virtual page count</span>
+          <input id="virtualPageCount" type="range" min="8" max="128" step="8" value="48">
+          <strong id="virtualPageCountValue">48</strong>
+        </label>
+        <label>
+          <span>Graph window size</span>
+          <input id="graphWindowSize" type="range" min="2" max="12" value="6">
+          <strong id="graphWindowSizeValue">6</strong>
+        </label>
+        <label>
+          <span>Compiler feedback depth</span>
+          <input id="compilerFeedbackDepth" type="range" min="1" max="8" value="3">
+          <strong id="compilerFeedbackDepthValue">3</strong>
+        </label>
+        <label>
+          <span>Barrier cost</span>
+          <input id="orchestrationBarrierCost" type="range" min="1" max="6" value="2">
+          <strong id="orchestrationBarrierCostValue">2</strong>
+        </label>
 
         <h3>Tiering</h3>
         <label>
@@ -458,6 +536,45 @@
             <h2>Fabric + Remote Routing</h2>
             <div id="fabricSummary" class="telemetryCards"></div>
             <div id="distributedRoutingTable" class="routingTable"></div>
+          </div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Runtime ABI + Object Table</h2>
+            <div id="abiSummary" class="telemetryCards"></div>
+            <div id="abiTable" class="directoryTable"></div>
+          </div>
+          <div class="panel">
+            <h2>Virtualized KV Mapping</h2>
+            <div id="pagingSummary" class="telemetryCards"></div>
+            <div id="pagingTable" class="directoryTable"></div>
+          </div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Compiler Execution Plan</h2>
+            <div id="compilerPlanSummary" class="telemetryCards"></div>
+            <svg id="compilerPlanSvg" class="architectureSvg" viewBox="0 0 1200 260" role="img" aria-label="Compiler execution plan"></svg>
+          </div>
+          <div class="panel">
+            <h2>Graph Replay + Kernel Launches</h2>
+            <div id="launchSummary" class="telemetryCards"></div>
+            <div id="launchTable" class="stackList"></div>
+          </div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Disaggregated Prefill / Decode</h2>
+            <div id="integrationSummary" class="telemetryCards"></div>
+            <div id="integrationStack" class="stackList"></div>
+          </div>
+          <div class="panel">
+            <h2>Memory Lifetime Analysis</h2>
+            <div id="lifetimeSummary" class="telemetryCards"></div>
+            <div id="lifetimeTable" class="directoryTable"></div>
           </div>
         </div>
 
@@ -809,6 +926,14 @@
           </p>
           <div id="benchmarkTable" class="benchmarkTable"></div>
         </div>
+
+        <div class="panel">
+          <h2>Runtime / System Comparison</h2>
+          <p class="subtle">
+            Compare paging, virtual remapping, IO-aware execution, and deterministic residency orchestration models.
+          </p>
+          <div id="runtimeComparisonTable" class="benchmarkTable"></div>
+        </div>
       </section>
     </section>
   </main>
@@ -823,6 +948,13 @@
   <script src="experiments.js"></script>
   <script src="policies.js"></script>
   <script src="workloads.js"></script>
+  <script src="abi.js"></script>
+  <script src="paging.js"></script>
+  <script src="compiler.js"></script>
+  <script src="launch.js"></script>
+  <script src="traces.js"></script>
+  <script src="lifetimes.js"></script>
+  <script src="integration.js"></script>
   <script src="compression.js"></script>
   <script src="tiers.js"></script>
   <script src="fragmentation.js"></script>

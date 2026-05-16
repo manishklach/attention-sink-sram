@@ -1,6 +1,6 @@
-# Attention-Sink SRAM
+# KV Memory Orchestrator
 
-Browser-native distributed memory-fabric simulator for `SRAM-aware transformer KV orchestration`, with deterministic experiments, cluster topology modeling, remote KV routing, pooled memory, and exportable research artifacts.
+Browser-native research platform exploring deterministic KV orchestration, memory-tier residency, and compiler/runtime coordination for future transformer inference systems.
 
 Open [index.html](./index.html) directly in a browser. No build step, framework, or package manager is required.
 
@@ -12,256 +12,168 @@ Open [index.html](./index.html) directly in a browser. No build step, framework,
 
 ## Positioning
 
-This repository now models a future transformer inference stack where:
+This repository now explores the gap between:
 
-- KV state is distributed across devices
-- SRAM is scarce and selectively promoted
-- HBM is local but not always sufficient
-- pooled memory absorbs colder or shared residency
-- decode fetches can traverse a fabric
-- scheduler decisions depend on topology, congestion, and deterministic windows
+- orchestration ideas
+- plausible inference runtime integration
 
-It is designed as a browser-native systems-research and architecture simulator rather than a production runtime.
+It models a future stack where compiler planning, runtime ABI objects, virtualized KV placement, graph-captured execution, distributed topology, and deterministic replay all interact.
 
-## What it simulates
+## What it now covers
 
-- control-plane orchestration
-- deterministic execution windows
-- per-head and per-layer KV promotion
-- multi-tier local memory
-- multi-device topology
-- fabric congestion and route saturation
-- remote KV fetch routing
-- pooled memory spillover
-- multicast and chained DMA waves
-- topology-aware scheduler decisions
-- degraded modes and rerouting
-- energy and cost modeling
-- trace-driven experiments and publication-style exports
+- deterministic KV residency
+- SRAM/HBM tiering
+- distributed memory-fabric routing
+- runtime ABI object handles
+- virtualized KV page tables
+- PagedAttention-style and vAttention-style layout ideas
+- compiler execution planning
+- CUDA-graph-like replay windows
+- kernel launch orchestration
+- disaggregated prefill/decode coordination
+- lifetime analysis and reclaim safety
+- telemetry, experiment sweeps, and research exports
 
-## Distributed cluster features
+## Runtime ABI
 
-### Multi-device topology
+The simulator now includes modeled:
 
-The simulator supports modeled devices such as:
+- KV object handles
+- residency descriptors
+- scheduling flags
+- replay flags
+- orchestration commands
+- replay checkpoints
 
-- GPU
-- accelerator
-- CPU-attached SRAM
-- pooled memory node
-- SmartNIC/DPU
-- storage offload node
+This is intended to illustrate what a future orchestration-aware runtime interface might look like.
 
-Topologies currently illustrated:
+## Compiler execution plans
 
-- `1D`
-- `mesh`
-- `fat-tree`
-- `star`
+The compiler planning layer generates modeled:
 
-### Fabric simulation
+- orchestration IR
+- execution regions
+- DMA schedules
+- replay checkpoints
+- promotion windows
 
-Fabric modes:
+Modes include:
 
-- `PCIe-like`
-- `NVLink-like`
-- `CXL-like`
-- `Ethernet/RDMA-like`
+- static planning
+- adaptive planning
+- feedback-driven planning
 
-The fabric layer models:
+## Paged KV layouts and virtualized residency
 
-- bandwidth
-- contention
-- congestion
-- latency
-- multicast efficiency
+Selectable layout modes:
 
-### Distributed KV placement
+- contiguous KV
+- PagedAttention-style paging
+- vAttention-style virtual remapping
+- sink-aware deterministic residency
+- hybrid paging + deterministic residency
 
-Placement policies include:
+The virtualized KV panel shows logical-to-physical mapping, remap counts, and migration eligibility.
 
-- local-first
-- topology-aware
-- latency-aware
-- bandwidth-aware
-- pooled-memory optimized
-- sink-density optimized
+## Graph replay execution
 
-These policies shape where KV slices land, how often remote fetches occur, and how aggressively pooled memory is used.
+The launch model explores:
 
-### Remote KV fetch routing
+- captured decode regions
+- replayable graph windows
+- graph invalidation
+- orchestration bubbles
+- dynamic fallback
 
-Decode lookups may resolve through:
+This is meant to illustrate how deterministic execution windows could interact with graph-captured inference.
 
-- local SRAM
-- remote SRAM
-- remote HBM
-- pooled memory
-- storage offload
+## Runtime integration concepts
 
-The simulator shows hop count, route congestion, fallback frequency, and approximate remote latency.
+The integration view models a future stack with:
 
-### CXL-like pooling
+- compiler
+- orchestration runtime
+- scheduler
+- DMA engine
+- residency manager
+- topology manager
+- fabric
+- memory tiers
+- kernels
 
-Pooled memory nodes model:
+It also includes a simple disaggregated prefill/decode view with prefill nodes, decode nodes, and remote KV transfer cost.
 
-- shared spillover capacity
-- shared-prefix residency
-- pooled occupancy
-- pooled fragmentation
-- remote access amplification
+## Research comparison mode
 
-### Distributed DMA orchestration
+The simulator includes a comparison surface for:
 
-DMA is no longer only local. The simulator includes modeled:
+- FlashAttention-style IO-aware execution
+- PagedAttention-style paging
+- vAttention-style remapping
+- deterministic residency orchestration
+- hybrid orchestration models
 
-- peer DMA
-- multicast waves
-- promotion waves
-- synchronized migrations
-- congestion amplification
+This comparison is a modeled research surface, not a production benchmark.
 
-### Scheduler and degraded modes
+## Exports
 
-The scheduler exposes placement rationale for:
+`Generate Research Artifact` exports:
 
-- tenant placement
-- shared-prefix colocation
-- congestion mitigation
-- execution-window preservation
-
-Stress-event buttons model:
-
-- bandwidth saturation
-- device loss
-- pooled-memory exhaustion
-- remote latency spikes
-- existing local stressors such as eviction storms and DMA congestion
-
-## Research and experimentation
-
-The repository includes:
-
-- experiment queueing
-- batched runs
-- reproducibility checks
-- trace replay
-- parameter sweeps
-- policy comparison
-- local result persistence
-- notebook mode
-- graph export
-
-## Distributed workload presets
-
-In addition to earlier single-node style workloads, the simulator now includes cluster-oriented presets such as:
-
-- hyperscale chatbot serving
-- retrieval-heavy cluster
-- pooled-memory constrained deployment
-- edge-cloud hybrid inference
-
-The workload suite catalog in the docs also covers:
-
-- enterprise multi-tenant serving
-- multi-agent orchestration
-- prefix-sharing hyperscale serving
-- long-context serving
-
-## Research exports
-
-Use `Generate Research Artifact` to export:
-
+- runtime ABI JSON
+- virtual KV maps
+- compiler plans
+- launch orchestration traces
+- lifetime analysis
 - topology snapshots
-- fabric congestion traces
+- fabric traces
 - migration traces
-- distributed routing traces
 - energy reports
 - cost/performance reports
-- benchmark summaries
-- telemetry dumps
-- architecture SVGs
 
-Use `Generate Paper Figures` to export:
+`Generate Paper Figures` exports:
 
-- research graphs
-- telemetry figures
-- architecture diagrams
-- microarchitecture diagrams
-
-## Screenshot placeholders
-
-Suggested screenshots for a paper, memo, or repo page:
-
-- distributed topology panel
-- fabric + remote routing panel
-- scheduler panel
-- pooling panel
-- energy + economics panel
-- telemetry dashboard
-- experiment framework
-- execution timeline
-
-## Repository structure
-
-- `index.html` - browser-native simulator UI
-- `app.js` - render orchestration and snapshot pipeline
-- `runtime-core.js` - base simulator state, geometry, sessions
-- `topology.js` - multi-device topology modeling
-- `fabric.js` - interconnect modeling and congestion
-- `pooling.js` - pooled-memory simulation
-- `scheduler.js` - topology-aware scheduling
-- `migration.js` - distributed KV migration waves
-- `energy.js` - energy accounting
-- `economics.js` - infrastructure cost modeling
-- `routing.js` - local and distributed decode routing
-- `telemetry.js` - rolling metrics and event counters
-- `experiments.js`, `sweeps.js`, `reproducibility.js`, `replay.js`, `persistence.js`, `notebook.js`, `graphs.js` - research framework
+- research graph SVGs
+- telemetry SVGs
+- runtime architecture SVGs
+- distributed topology SVGs
+- compiler-plan SVGs
 
 ## Documentation
 
-Core docs:
+- [Runtime ABI](./docs/runtime-abi.md)
+- [Virtualized KV](./docs/virtualized-kv.md)
+- [Compiler planning](./docs/compiler-planning.md)
+- [Graph execution](./docs/graph-execution.md)
+- [Disaggregated prefill/decode](./docs/disaggregated-prefill-decode.md)
+- [Runtime integration](./docs/runtime-integration.md)
+- [Comparison with existing systems](./docs/comparison-with-existing-systems.md)
 
-- [Architecture](./docs/architecture.md)
-- [Experiments](./docs/experiments.md)
-- [Evaluation methodology](./docs/evaluation-methodology.md)
-- [Metrics](./docs/metrics.md)
-
-Distributed docs:
+Additional architecture docs:
 
 - [Distributed topology](./docs/distributed-topology.md)
 - [Fabric simulation](./docs/fabric-simulation.md)
 - [CXL pooling](./docs/cxl-pooling.md)
-- [Distributed routing](./docs/distributed-routing.md)
-- [Topology-aware scheduling](./docs/topology-aware-scheduling.md)
 - [Energy modeling](./docs/energy-modeling.md)
 - [Economic modeling](./docs/economic-modeling.md)
-
-Additional docs:
-
-- [Control plane](./docs/control-plane.md)
-- [Deterministic execution](./docs/deterministic-execution.md)
-- [Multi-tier memory](./docs/multi-tier-memory.md)
-- [Telemetry](./docs/telemetry.md)
-- [Policy comparison](./docs/policy-comparison.md)
-- [Workloads](./docs/workloads.md)
+- [Experiments](./docs/experiments.md)
+- [Metrics](./docs/metrics.md)
 
 ## Disclaimer
 
-This repository is a `deterministic educational systems simulator`.
+This repository is a deterministic educational systems simulator.
 
 It is intended to:
 
-- model architectural tradeoffs
-- illustrate cluster-level memory orchestration behavior
-- support explanation of patent-adjacent architecture ideas
-- provide a reproducible experimentation surface
+- model orchestration concepts
+- illustrate compiler/runtime coordination ideas
+- explore future memory-fabric inference architectures
+- support explanation of patent-adjacent architecture themes
 
-It does `not` claim:
+It does not claim:
 
-- real hardware equivalence
-- cycle-accurate simulation
-- production inference performance
+- production-runtime equivalence
+- cycle-accurate execution
+- direct benchmark superiority
 - legal conclusions or patentability guarantees
 
 ## Maintainer
