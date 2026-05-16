@@ -73,6 +73,18 @@
         </label>
 
         <label>
+          <span>Distributed placement policy</span>
+          <select id="distributedPlacementPolicy">
+            <option value="local-first">Local-first</option>
+            <option value="topology-aware">Topology-aware</option>
+            <option value="latency-aware">Latency-aware</option>
+            <option value="bandwidth-aware">Bandwidth-aware</option>
+            <option value="pooled-memory-optimized">Pooled-memory optimized</option>
+            <option value="sink-density-optimized">Sink-density optimized</option>
+          </select>
+        </label>
+
+        <label>
           <span>Workload preset</span>
           <select id="workloadPreset">
             <option value="chatbot-assistant">Chatbot assistant</option>
@@ -82,6 +94,10 @@
             <option value="multi-agent-orchestration">Multi-agent orchestration</option>
             <option value="speculative-decode-stress">Speculative decode stress</option>
             <option value="multi-tenant-enterprise-serving">Multi-tenant enterprise serving</option>
+            <option value="hyperscale-chatbot-serving">Hyperscale chatbot serving</option>
+            <option value="retrieval-heavy-cluster">Retrieval-heavy cluster</option>
+            <option value="pooled-memory-constrained-deployment">Pooled-memory constrained deployment</option>
+            <option value="edge-cloud-hybrid-inference">Edge-cloud hybrid inference</option>
           </select>
         </label>
 
@@ -208,6 +224,83 @@
           <strong id="dmaSlotsValue">3</strong>
         </label>
 
+        <h3>Distributed Fabric</h3>
+        <label>
+          <span>Topology</span>
+          <select id="topologyType">
+            <option value="1d">1D</option>
+            <option value="mesh">Mesh</option>
+            <option value="fat-tree">Fat-tree</option>
+            <option value="star">Star</option>
+            <option value="custom">Custom</option>
+          </select>
+        </label>
+        <label>
+          <span>Fabric type</span>
+          <select id="fabricType">
+            <option value="pcie-like">PCIe-like</option>
+            <option value="nvlink-like">NVLink-like</option>
+            <option value="cxl-like">CXL-like</option>
+            <option value="ethernet-rdma-like">Ethernet/RDMA-like</option>
+          </select>
+        </label>
+        <label>
+          <span>Device count</span>
+          <input id="deviceCount" type="range" min="4" max="12" value="6">
+          <strong id="deviceCountValue">6</strong>
+        </label>
+        <label>
+          <span>Pooled memory nodes</span>
+          <input id="pooledMemoryNodes" type="range" min="0" max="4" value="1">
+          <strong id="pooledMemoryNodesValue">1</strong>
+        </label>
+        <label>
+          <span>Topology width</span>
+          <input id="topologyWidth" type="range" min="2" max="4" value="3">
+          <strong id="topologyWidthValue">3</strong>
+        </label>
+        <label>
+          <span>Fabric bandwidth (GB/s proxy)</span>
+          <input id="fabricBandwidth" type="range" min="80" max="400" step="20" value="220">
+          <strong id="fabricBandwidthValue">220</strong>
+        </label>
+        <label>
+          <span>Fabric link latency</span>
+          <input id="fabricLinkLatency" type="range" min="2" max="20" value="7">
+          <strong id="fabricLinkLatencyValue">7</strong>
+        </label>
+        <label>
+          <span>Remote latency multiplier</span>
+          <input id="remoteLatencyMultiplier" type="range" min="1" max="3" step="0.1" value="1.4">
+          <strong id="remoteLatencyMultiplierValue">1.4</strong>
+        </label>
+        <label>
+          <span>Pooled spill percent</span>
+          <input id="pooledSpillPercent" type="range" min="0" max="40" value="18">
+          <strong id="pooledSpillPercentValue">18</strong>
+        </label>
+        <label>
+          <span>DMA multicast fanout</span>
+          <input id="multicastFanout" type="range" min="1" max="6" value="3">
+          <strong id="multicastFanoutValue">3</strong>
+        </label>
+        <label>
+          <span>Energy mode</span>
+          <select id="energyMode">
+            <option value="balanced">Balanced</option>
+            <option value="conservative">Conservative</option>
+            <option value="performance">Performance</option>
+          </select>
+        </label>
+        <label>
+          <span>Cost mode</span>
+          <select id="costMode">
+            <option value="throughput-optimized">Throughput optimized</option>
+            <option value="memory-optimized">Memory optimized</option>
+            <option value="latency-premium">Latency premium</option>
+          </select>
+        </label>
+
         <h3>Speculative Decode</h3>
         <label>
           <span>Draft tokens per step</span>
@@ -321,6 +414,9 @@
           <button id="eventTenantBurst" class="secondary">Tenant burst</button>
           <button id="eventPrefixInvalidation" class="secondary">Prefix invalidation</button>
           <button id="eventBandwidthSaturation" class="secondary">Bandwidth saturation</button>
+          <button id="eventDeviceLoss" class="secondary">Device loss</button>
+          <button id="eventPooledExhaustion" class="secondary">Pooled exhaustion</button>
+          <button id="eventRemoteLatencySpike" class="secondary">Remote latency spike</button>
         </div>
       </aside>
 
@@ -350,6 +446,32 @@
             <span class="metricLabel">Relative speedup</span>
             <strong id="relativeSpeedup">1.00x</strong>
           </article>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Distributed Topology</h2>
+            <div id="topologySummary" class="telemetryCards"></div>
+            <svg id="topologySvg" class="architectureSvg" viewBox="0 0 900 420" role="img" aria-label="Distributed topology"></svg>
+          </div>
+          <div class="panel">
+            <h2>Fabric + Remote Routing</h2>
+            <div id="fabricSummary" class="telemetryCards"></div>
+            <div id="distributedRoutingTable" class="routingTable"></div>
+          </div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>CXL-Like Pooling + Scheduler</h2>
+            <div id="poolingPanel" class="telemetryCards"></div>
+            <div id="schedulerPanel" class="stackList"></div>
+          </div>
+          <div class="panel">
+            <h2>Energy + Economics</h2>
+            <div id="energyPanel" class="telemetryCards"></div>
+            <div id="economicsPanel" class="stackList"></div>
+          </div>
         </div>
 
         <div class="panel">
@@ -704,6 +826,13 @@
   <script src="compression.js"></script>
   <script src="tiers.js"></script>
   <script src="fragmentation.js"></script>
+  <script src="topology.js"></script>
+  <script src="fabric.js"></script>
+  <script src="pooling.js"></script>
+  <script src="scheduler.js"></script>
+  <script src="migration.js"></script>
+  <script src="energy.js"></script>
+  <script src="economics.js"></script>
   <script src="orchestrator.js"></script>
   <script src="telemetry.js"></script>
   <script src="metrics.js"></script>

@@ -7,6 +7,20 @@
     lastComparison: [],
 
     makeDefinition(overrides) {
+      const baseParameters = {
+        distributedPlacementPolicy: sim.state.distributedPlacementPolicy,
+        topologyType: sim.state.topologyType,
+        fabricType: sim.state.fabricType,
+        deviceCount: sim.state.deviceCount,
+        pooledMemoryNodes: sim.state.pooledMemoryNodes,
+        fabricBandwidth: sim.state.fabricBandwidth,
+        fabricLinkLatency: sim.state.fabricLinkLatency,
+        remoteLatencyMultiplier: sim.state.remoteLatencyMultiplier,
+        pooledSpillPercent: sim.state.pooledSpillPercent,
+        multicastFanout: sim.state.multicastFanout,
+        energyMode: sim.state.energyMode,
+        costMode: sim.state.costMode,
+      };
       return {
         name: overrides.name || `Experiment ${new Date().toLocaleTimeString()}`,
         workload: overrides.workload || sim.state.workloadPreset,
@@ -16,7 +30,7 @@
         promotionPolicy: overrides.promotionPolicy || sim.state.promotionGranularity,
         seed: overrides.seed || sim.state.seed,
         duration: overrides.duration || sim.state.decodeSteps,
-        parameters: overrides.parameters || {},
+        parameters: { ...baseParameters, ...(overrides.parameters || {}) },
       };
     },
 

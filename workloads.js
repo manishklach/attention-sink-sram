@@ -65,6 +65,42 @@
       draftAcceptRate: 0.68,
       notes: "Shared system prompts and repeated enterprise policy prefixes.",
     },
+    "hyperscale-chatbot-serving": {
+      promptLength: 22,
+      decodeSteps: 20,
+      tenantCount: 8,
+      sharedPrefixLength: 7,
+      sinkStrength: 0.78,
+      draftAcceptRate: 0.72,
+      notes: "High fanout cluster serving with aggressive shared-prefix reuse.",
+    },
+    "retrieval-heavy-cluster": {
+      promptLength: 30,
+      decodeSteps: 18,
+      tenantCount: 6,
+      sharedPrefixLength: 8,
+      sinkStrength: 0.81,
+      draftAcceptRate: 0.61,
+      notes: "Retrieval-heavy cluster with frequent remote fetch and pooled memory use.",
+    },
+    "pooled-memory-constrained-deployment": {
+      promptLength: 18,
+      decodeSteps: 15,
+      tenantCount: 5,
+      sharedPrefixLength: 5,
+      sinkStrength: 0.68,
+      draftAcceptRate: 0.66,
+      notes: "Cluster where pooled memory is present but occupancy pressure is high.",
+    },
+    "edge-cloud-hybrid-inference": {
+      promptLength: 16,
+      decodeSteps: 14,
+      tenantCount: 4,
+      sharedPrefixLength: 4,
+      sinkStrength: 0.64,
+      draftAcceptRate: 0.63,
+      notes: "Hybrid edge/cloud topology with remote latency sensitivity and offload escalation.",
+    },
   };
 
   const suites = {
@@ -111,10 +147,22 @@
       description: "Stresses fairness, churn, and residency guarantees under sudden burst load.",
     },
     "prefix-sharing-hyperscale-serving": {
-      workload: "multi-tenant-enterprise-serving",
+      workload: "hyperscale-chatbot-serving",
       recommendedPolicy: "latency-optimized",
       stressEvents: ["dma-congestion"],
       description: "Demonstrates a shared-prefix-heavy serving environment with high reuse density.",
+    },
+    "pooled-memory-constrained-deployment": {
+      workload: "pooled-memory-constrained-deployment",
+      recommendedPolicy: "pooled-memory-optimized",
+      stressEvents: ["pooled-memory-exhaustion"],
+      description: "Shows spillover pressure, remote amplification, and pooled residency tradeoffs.",
+    },
+    "edge-cloud-hybrid-inference": {
+      workload: "edge-cloud-hybrid-inference",
+      recommendedPolicy: "latency-aware",
+      stressEvents: ["remote-latency-spike", "device-loss"],
+      description: "Illustrates heterogeneous topology and degraded-mode rerouting across edge and cloud nodes.",
     },
   };
 

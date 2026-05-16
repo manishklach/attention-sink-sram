@@ -38,6 +38,14 @@
         orchestrationState: run.orchestrator,
         dmaTrace: run.dma.descriptors,
         routingTable: run.routing.rows,
+        distributedRouting: run.distributedRouting,
+        topology: run.topology,
+        fabric: run.fabric,
+        pooling: run.pooling,
+        scheduler: run.scheduler,
+        migration: run.migration,
+        energy: run.energy,
+        economics: run.economics,
         fragmentation: run.fragmentation,
         tierState: run.tierState,
         telemetry: run.telemetry,
@@ -55,6 +63,11 @@
       const residencyJson = JSON.stringify(run.directory.entries, null, 2);
       const telemetryJson = JSON.stringify(run.telemetry, null, 2);
       const fragmentationJson = JSON.stringify(run.fragmentation, null, 2);
+      const topologyJson = JSON.stringify(run.topology, null, 2);
+      const fabricJson = JSON.stringify(run.fabric, null, 2);
+      const migrationJson = JSON.stringify(run.migration, null, 2);
+      const energyJson = JSON.stringify(run.energy, null, 2);
+      const economicsJson = JSON.stringify(run.economics, null, 2);
       const benchmarkJson = JSON.stringify(run.benchmarkComparison, null, 2);
       const snapshotJson = JSON.stringify(snapshot, null, 2);
       const csvRows = [
@@ -76,6 +89,11 @@
       downloadText("dma-trace.json", dmaJson, "application/json");
       downloadText("tier-residency-snapshot.json", residencyJson, "application/json");
       downloadText("fragmentation-map.json", fragmentationJson, "application/json");
+      downloadText("topology-snapshot.json", topologyJson, "application/json");
+      downloadText("fabric-congestion-trace.json", fabricJson, "application/json");
+      downloadText("migration-trace.json", migrationJson, "application/json");
+      downloadText("energy-report.json", energyJson, "application/json");
+      downloadText("cost-performance-report.json", economicsJson, "application/json");
       downloadText("routing-statistics.csv", csvRows, "text/csv");
       downloadText("telemetry-dump.json", telemetryJson, "application/json");
       downloadText("benchmark-report.json", benchmarkJson, "application/json");

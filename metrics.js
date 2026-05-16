@@ -32,6 +32,11 @@
       effectiveBandwidthSaved: "Approximate bandwidth saved through fast-tier hits and compressed-tier routing.",
       estimatedLatencySaved: "Approximate latency savings relative to HBM-only decode routing.",
       tenantSharingEfficiency: "Current run's sharing efficiency derived from shared-prefix reuse.",
+      remoteFetchRate: "Share of decode lookups that require a remote fabric traversal.",
+      fabricUtilization: "Average utilization across modeled inter-device links.",
+      clusterResidencyStability: "Approximate stability of KV residency across multiple devices and pooled memory tiers.",
+      energyPerDecodeToken: "Approximate cluster energy consumed per decode token.",
+      throughputPerDollar: "Approximate economic efficiency derived from routing, memory, and fabric costs.",
     },
 
     summarize(snapshot) {
@@ -60,6 +65,11 @@
         effectiveBandwidthSaved: snapshot.compression.bandwidthSavings + snapshot.routing.totalReadsAvoided * snapshot.model.headDim * snapshot.model.bytesPerElement,
         estimatedLatencySaved: snapshot.orchestrator.latencySavings,
         tenantSharingEfficiency: snapshot.telemetry.current.sharingEfficiency,
+        remoteFetchRate: snapshot.distributedRouting.remoteFetchRate,
+        fabricUtilization: snapshot.fabric.utilization,
+        clusterResidencyStability: Math.max(20, snapshot.orchestrator.executionStability - snapshot.fabric.hotspots * 4 - snapshot.pooling.occupancyPercent * 0.08),
+        energyPerDecodeToken: snapshot.energy.energyPerDecodeToken,
+        throughputPerDollar: snapshot.economics.throughputPerDollar,
       };
     },
   };

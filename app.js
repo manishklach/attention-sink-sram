@@ -20,6 +20,13 @@
     document.getElementById("promotedLayerStart").max = String(Math.max(0, sim.state.layers - 1));
     document.getElementById("promotedLayerEnd").max = String(Math.max(0, sim.state.layers - 1));
     document.getElementById("sharedPrefixLength").max = String(sim.state.promptLength);
+    const pooledNodesInput = document.getElementById("pooledMemoryNodes");
+    if (pooledNodesInput) {
+      pooledNodesInput.max = String(Math.max(0, sim.state.deviceCount - 2));
+      if (sim.state.pooledMemoryNodes > Number(pooledNodesInput.max)) {
+        sim.state.pooledMemoryNodes = Number(pooledNodesInput.max);
+      }
+    }
 
     sim.rangeIds.forEach((id) => {
       const input = document.getElementById(id);
@@ -29,7 +36,7 @@
       }
       input.value = sim.state[id];
       value.textContent = String(sim.state[id]);
-      if (["layerBoostMultiplier", "sinkThreshold", "evictionThreshold", "emaAlpha", "draftAcceptRate"].includes(id)) {
+      if (["layerBoostMultiplier", "sinkThreshold", "evictionThreshold", "emaAlpha", "draftAcceptRate", "remoteLatencyMultiplier"].includes(id)) {
         value.textContent = Number(sim.state[id]).toFixed(2).replace(/0$/, "").replace(/\.$/, "");
       }
     });
@@ -222,6 +229,129 @@
     `;
   }
 
+  function renderDistributedTopology(topology, fabric) {
+    document.getElementById("topologySummary").innerHTML = `
+      <div class="sharedStat"><span>Devices</span><strong>${topology.nodes.length}</strong></div>
+      <div class="sharedStat"><span>Links</span><strong>${topology.links.length}</strong></div>
+      <div class="sharedStat"><span>Total SRAM</span><strong>${bytesToHuman(topology.summary.totalSram)}</strong></div>
+      <div class="sharedStat"><span>Total HBM</span><strong>${bytesToHuman(topology.summary.totalHbm)}</strong></div>
+      <div class="sharedStat"><span>Fabric utilization</span><strong>${formatNumber(fabric.utilization, 1)}%</strong></div>
+      <div class="sharedStat"><span>Hotspots</span><strong>${fabric.hotspots}</strong></div>
+    `;
+    const svg = document.getElementById("topologySvg");
+    const nodeMap = new Map(topology.nodes.map((node) => [node.id, node]));
+    svg.innerHTML = `
+      ${fabric.links.map((link) => {
+        const from = nodeMap.get(link.from);
+        const to = nodeMap.get(link.to);
+        const stroke = link.failed ? "#aa4038" : link.saturated ? "#b56b36" : "#0e5f66";
+        const width = 2 + Math.min(5, link.utilization / 28);
+        return `<line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}" stroke="${stroke}" stroke-width="${width}" opacity="0.7" />`;
+      }).join("")}
+      ${topology.nodes.map((node) => `
+        <g class="topoNode">
+          <circle cx="${node.x}" cy="${node.y}" r="34" fill="${node.type === "pooled memory node" ? "#dceff1" : node.type === "storage offload node" ? "#f7e8dc" : "#fff"}" stroke="#615a54" stroke-width="2" />
+          <text x="${node.x}" y="${node.y - 4}" text-anchor="middle" font-size="12" font-weight="700">${node.id}</text>
+          <text x="${node.x}" y="${node.y + 12}" text-anchor="middle" font-size="9">${node.type.replace(" memory node", "")}</text>
+        </g>
+      `).join("")}
+    `;
+  }
+
+  function renderFabricAndDistributedRouting(fabric, distributedRouting) {
+    document.getElementById("fabricSummary").innerHTML = `
+      <div class="sharedStat"><span>Fabric type</span><strong>${sim.state.fabricType}</strong></div>
+      <div class="sharedStat"><span>Multicast efficiency</span><strong>${formatNumber(fabric.multicastEfficiency * 100, 1)}%</strong></div>
+      <div class="sharedStat"><span>Remote fetch rate</span><strong>${formatNumber(distributedRouting.remoteFetchRate, 1)}%</strong></div>
+      <div class="sharedStat"><span>Pooled accesses</span><strong>${distributedRouting.pooledAccesses}</strong></div>
+      <div class="sharedStat"><span>Escalations</span><strong>${distributedRouting.escalations}</strong></div>
+      <div class="sharedStat"><span>Avg remote latency</span><strong>${formatNumber(distributedRouting.averageRemoteLatency, 1)}</strong></div>
+    `;
+    const rows = distributedRouting.rows.slice(0, 14);
+    document.getElementById("distributedRoutingTable").innerHTML = `
+      <div class="routingHeader">
+        <span>Session</span>
+        <span>Step</span>
+        <span>Local device</span>
+        <span>Target</span>
+        <span>Hops</span>
+        <span>Congested</span>
+        <span>Latency</span>
+        <span>Decision</span>
+      </div>
+      ${rows.map((row) => `
+        <div class="routingRow ${row.decision.toLowerCase()}">
+          <span>${row.sessionId}</span>
+          <span>${row.step}</span>
+          <span>${row.localDevice}</span>
+          <span>${row.targetTier}</span>
+          <span>${row.hops}</span>
+          <span>${row.congested ? "yes" : "no"}</span>
+          <span>${formatNumber(row.latency, 1)}</span>
+          <span>${row.decision}</span>
+        </div>
+      `).join("")}
+    `;
+  }
+
+  function renderPoolingAndScheduler(pooling, scheduler, migration) {
+    document.getElementById("poolingPanel").innerHTML = `
+      <div class="sharedStat"><span>Pooled nodes</span><strong>${pooling.pooledNodes.join(", ") || "none"}</strong></div>
+      <div class="sharedStat"><span>Pool occupancy</span><strong>${formatNumber(pooling.occupancyPercent, 1)}%</strong></div>
+      <div class="sharedStat"><span>Spill bytes</span><strong>${bytesToHuman(pooling.spillBytes)}</strong></div>
+      <div class="sharedStat"><span>Remote amplification</span><strong>${formatNumber(pooling.remoteAccessAmplification, 2)}x</strong></div>
+      <div class="sharedStat"><span>Pooled fragmentation</span><strong>${formatNumber(pooling.pooledFragmentation, 1)}%</strong></div>
+      <div class="sharedStat"><span>Shared efficiency</span><strong>${formatNumber(pooling.sharedResidencyEfficiency, 2)}</strong></div>
+    `;
+    document.getElementById("schedulerPanel").innerHTML = `
+      ${scheduler.decisions.slice(0, 8).map((decision) => `
+        <div class="stackItem">
+          <strong>${decision.sessionId}: ${decision.localDevice} → ${decision.targetDevice}</strong>
+          <span>${decision.rationale}</span>
+          <span>${decision.colocateSharedPrefix ? "Shared prefixes co-located." : "Shared prefixes may traverse fabric."}</span>
+          <span>${decision.congestionMitigation}</span>
+        </div>
+      `).join("")}
+      <div class="stackItem">
+        <strong>Promotion waves</strong>
+        <span>${migration.waves.length} active waves | ${bytesToHuman(migration.totalBytes)} moved</span>
+        <span>Multicast bytes ${bytesToHuman(migration.multicastBytes)} | synchronized ${migration.synchronizedPromotions}</span>
+      </div>
+    `;
+  }
+
+  function renderEnergyAndEconomics(energy, economics) {
+    document.getElementById("energyPanel").innerHTML = `
+      <div class="sharedStat"><span>Energy per decode token</span><strong>${formatNumber(energy.energyPerDecodeToken, 2)}</strong></div>
+      <div class="sharedStat"><span>Energy per tenant</span><strong>${formatNumber(energy.energyPerTenant, 2)}</strong></div>
+      <div class="sharedStat"><span>SRAM energy</span><strong>${formatNumber(energy.sramAccessEnergy, 1)}</strong></div>
+      <div class="sharedStat"><span>HBM energy</span><strong>${formatNumber(energy.hbmEnergy, 1)}</strong></div>
+      <div class="sharedStat"><span>Remote fetch energy</span><strong>${formatNumber(energy.remoteFetchEnergy, 1)}</strong></div>
+      <div class="sharedStat"><span>DMA energy</span><strong>${formatNumber(energy.dmaEnergy, 1)}</strong></div>
+    `;
+    document.getElementById("economicsPanel").innerHTML = `
+      <div class="stackItem">
+        <strong>Cluster cost model</strong>
+        <span>Bandwidth cost ${formatNumber(economics.bandwidthCost, 2)}</span>
+        <span>Memory cost ${formatNumber(economics.memoryCost, 2)}</span>
+        <span>Fabric cost ${formatNumber(economics.fabricCost, 2)}</span>
+      </div>
+      <div class="stackItem">
+        <strong>Efficiency</strong>
+        <span>SRAM gain ${formatNumber(economics.sramEfficiencyGain, 2)}x</span>
+        <span>Pooled memory efficiency ${formatNumber(economics.pooledMemoryEfficiency, 2)}</span>
+        <span>Throughput per dollar ${formatNumber(economics.throughputPerDollar, 4)}</span>
+      </div>
+      ${economics.scalingCurve.slice(0, 3).map((point) => `
+        <div class="stackItem">
+          <strong>${point.devices} devices</strong>
+          <span>Throughput/$ ${formatNumber(point.throughputPerDollar, 4)}</span>
+          <span>Remote penalty ${formatNumber(point.remotePenalty, 1)}%</span>
+        </div>
+      `).join("")}
+    `;
+  }
+
   function renderSharedPrefix(sharedMetrics, sessions) {
     document.getElementById("sharedPrefixPanel").innerHTML = `
       <div class="sharedStat"><span>Attached sessions</span><strong>${sessions.filter((session) => session.attachedSharedPrefix).length}</strong></div>
@@ -402,6 +532,11 @@
       <div class="sharedStat" title="${sim.metrics.definitions.multiTenantReuseEfficiency}"><span>Reuse efficiency</span><strong>${formatNumber(metricsSummary.multiTenantReuseEfficiency, 2)}</strong></div>
       <div class="sharedStat" title="${sim.metrics.definitions.compactionOverhead}"><span>Compaction overhead</span><strong>${formatNumber(metricsSummary.compactionOverhead, 1)}</strong></div>
       <div class="sharedStat" title="${sim.metrics.definitions.effectiveBandwidthSaved}"><span>Bandwidth saved</span><strong>${bytesToHuman(metricsSummary.effectiveBandwidthSaved)}</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.remoteFetchRate}"><span>Remote fetch rate</span><strong>${formatNumber(metricsSummary.remoteFetchRate, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.fabricUtilization}"><span>Fabric utilization</span><strong>${formatNumber(metricsSummary.fabricUtilization, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.clusterResidencyStability}"><span>Cluster residency stability</span><strong>${formatNumber(metricsSummary.clusterResidencyStability, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.energyPerDecodeToken}"><span>Energy / decode token</span><strong>${formatNumber(metricsSummary.energyPerDecodeToken, 2)}</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.throughputPerDollar}"><span>Throughput / $</span><strong>${formatNumber(metricsSummary.throughputPerDollar, 4)}</strong></div>
     `;
     const history = telemetry.history;
     sim.graphs.renderSeries("telemetrySvg", "Rolling Telemetry", [
@@ -409,6 +544,8 @@
       { label: "DMA queue occupancy", points: history.map((point, index) => ({ x: index, value: point.dmaQueueOccupancy * 10 })) },
       { label: "Rollback rate", points: history.map((point, index) => ({ x: index, value: point.rollbackRate * 100 })) },
       { label: "Deterministic decode", points: history.map((point, index) => ({ x: index, value: point.deterministicDecode })) },
+      { label: "Remote fetch rate", points: history.map((point, index) => ({ x: index, value: point.remoteFetchRate })) },
+      { label: "Fabric utilization", points: history.map((point, index) => ({ x: index, value: point.fabricUtilization })) },
     ], "Rolling metrics");
   }
 
@@ -665,7 +802,7 @@
   }
 
   function buildArchitectureState(snapshot) {
-    const { directory, dma, routing, orchestrator } = snapshot;
+    const { directory, dma, routing, orchestrator, topology, fabric, distributedRouting } = snapshot;
     return {
       tokenizer: `${sim.state.tenantCount} sessions`,
       prefill: `${sim.state.promptLength} prompt tokens`,
@@ -674,9 +811,9 @@
       dma: `${dma.descriptors.length} transfers`,
       sram: `${directory.entries.filter((entry) => entry.tier === "SRAM").length} active entries`,
       hbm: `${formatNumber(routing.totalMisses, 0)} fallback reads`,
-      router: `${routing.rows.filter((row) => row.routingDecision === "Mixed").length} mixed routes`,
+      router: `${routing.rows.filter((row) => row.routingDecision === "Mixed").length} mixed | ${formatNumber(distributedRouting.remoteFetchRate, 1)}% remote`,
       eviction: sim.state.evictionPolicy,
-      directory: `${directory.summary.sharedUsers} shared refs`,
+      directory: `${directory.summary.sharedUsers} shared refs | ${topology.nodes.length} devices | ${fabric.hotspots} hotspots`,
     };
   }
 
@@ -710,11 +847,15 @@
     const promotedHeads = sim.determinePromotedHeads(headProfiles);
     const directory = sim.residency.buildDirectory(sessions, headProfiles, promotedHeads);
     const sharedMetrics = sim.residency.computeSharedPrefixMetrics(directory);
+    const topology = sim.topology.build(model, sessions);
+    const fabric = sim.fabric.build(topology, sessions);
     const dma = sim.dma.buildQueue(directory, sessions);
     const routing = sim.routing.buildRoutingTable(directory, promotedHeads, sessions);
+    const distributedRouting = sim.routing.buildDistributedRouting(topology, fabric, directory, sessions);
     const speculative = sim.speculative.buildTrace(sessions);
     const compression = sim.compression.build(directory, dma);
     const tierState = sim.tiers.build(directory, routing, compression);
+    const pooling = sim.pooling.build(topology, directory);
     const benchmarkComparison = sim.benchmark.computeRuntimeBenchmark({
       model,
       policy: sim.state,
@@ -741,6 +882,8 @@
       evictionComparison,
     });
     const fragmentation = sim.fragmentation.build(directory, partitions);
+    const scheduler = sim.scheduler.build(topology, fabric, pooling, sessions, distributedRouting);
+    const migration = sim.migration.build(topology, fabric, directory, scheduler);
     const orchestrator = sim.orchestrator.build({
       model,
       sessions,
@@ -754,8 +897,24 @@
       evictionComparison,
       fragmentation,
     });
+    const energy = sim.energy.build({
+      distributedRouting,
+      dma,
+      migration,
+      compression,
+      routing,
+      sessions,
+    });
+    const economics = sim.economics.build({
+      topology,
+      fabric,
+      routing,
+      distributedRouting,
+      pooling,
+      metricsSummary: { effectiveSramAmplification: directory.entries.length ? sim.computeKvBytes(model) / Math.max(1, directory.entries.reduce((sum, entry) => sum + entry.bytes, 0)) : 0 },
+    });
     const timeline = sim.timeline.buildEvents(sessions, directory, dma, routing, speculative, promotedHeads.map((head) => head.id));
-    const architectureState = buildArchitectureState({ directory, dma, routing, orchestrator });
+    const architectureState = buildArchitectureState({ directory, dma, routing, orchestrator, topology, fabric, distributedRouting });
     const telemetry = sim.telemetry.build({
       sessions,
       tierState,
@@ -766,6 +925,10 @@
       sharedMetrics,
       fragmentation,
       compression,
+      distributedRouting,
+      fabric,
+      migration,
+      energy,
     }, { persistHistory: options.persistTelemetry !== false });
     const metricsSummary = sim.metrics.summarize({
       model,
@@ -780,6 +943,11 @@
       fragmentation,
       orchestrator,
       telemetry,
+      distributedRouting,
+      fabric,
+      pooling,
+      energy,
+      economics,
     });
 
     const snapshot = {
@@ -790,16 +958,24 @@
       promotedHeads,
       directory,
       sharedMetrics,
+      topology,
+      fabric,
       dma,
       routing,
+      distributedRouting,
       speculative,
       compression,
       tierState,
+      pooling,
       benchmarkComparison,
       evictionComparison,
       partitions,
       fragmentation,
+      scheduler,
+      migration,
       orchestrator,
+      energy,
+      economics,
       timeline,
       architectureState,
       telemetry,
@@ -816,6 +992,10 @@
 
   function renderSnapshot(snapshot) {
     fillSessionSelector(snapshot.sessions);
+    renderDistributedTopology(snapshot.topology, snapshot.fabric);
+    renderFabricAndDistributedRouting(snapshot.fabric, snapshot.distributedRouting);
+    renderPoolingAndScheduler(snapshot.pooling, snapshot.scheduler, snapshot.migration);
+    renderEnergyAndEconomics(snapshot.energy, snapshot.economics);
     renderHeadProfiles(snapshot.headProfiles);
     renderHeatmap(snapshot.headProfiles, snapshot.layerBuckets);
     renderEfficiency(snapshot.model, snapshot.promotedHeads);
@@ -888,7 +1068,7 @@
       "latency-optimized",
       "tenant-fairness-optimized",
       "speculative-heavy",
-      "sram-conservative",
+      "sink-stability-optimized",
     ];
     const results = sim.experiments.comparePolicies(policies, computeSnapshot);
     renderExperimentResults(results);
@@ -984,6 +1164,7 @@
     sim.graphs.exportFigure("telemetrySvg", "paper-figure-telemetry", [["series", "value"]]);
     const arch = document.getElementById("architectureSvg");
     const micro = document.getElementById("microarchitectureSvg");
+    const topo = document.getElementById("topologySvg");
     const downloadSvg = (element, name) => {
       const link = document.createElement("a");
       link.href = URL.createObjectURL(new Blob([element.outerHTML], { type: "image/svg+xml" }));
@@ -992,6 +1173,7 @@
     };
     downloadSvg(arch, "paper-figure-architecture.svg");
     downloadSvg(micro, "paper-figure-microarchitecture.svg");
+    downloadSvg(topo, "paper-figure-distributed-topology.svg");
   }
 
   function runSimulation() {
@@ -1087,6 +1269,19 @@
         sramBudget: 6,
         dmaBandwidth: 72,
         dmaSlots: 2,
+        topologyType: "1d",
+        fabricType: "pcie-like",
+        distributedPlacementPolicy: "local-first",
+        deviceCount: 4,
+        pooledMemoryNodes: 0,
+        topologyWidth: 2,
+        fabricBandwidth: 120,
+        fabricLinkLatency: 10,
+        remoteLatencyMultiplier: 1.8,
+        pooledSpillPercent: 8,
+        multicastFanout: 1,
+        energyMode: "conservative",
+        costMode: "memory-optimized",
         draftTokens: 1,
         draftAcceptRate: 0.74,
         executionWindowDuration: 7,
@@ -1114,6 +1309,19 @@
         sramBudget: 12,
         dmaBandwidth: 144,
         dmaSlots: 4,
+        topologyType: "fat-tree",
+        fabricType: "nvlink-like",
+        distributedPlacementPolicy: "topology-aware",
+        deviceCount: 8,
+        pooledMemoryNodes: 2,
+        topologyWidth: 3,
+        fabricBandwidth: 280,
+        fabricLinkLatency: 5,
+        remoteLatencyMultiplier: 1.2,
+        pooledSpillPercent: 24,
+        multicastFanout: 4,
+        energyMode: "performance",
+        costMode: "throughput-optimized",
         draftTokens: 3,
         draftAcceptRate: 0.62,
         executionWindowDuration: 10,
@@ -1153,6 +1361,9 @@
       ["eventTenantBurst", "tenant-burst"],
       ["eventPrefixInvalidation", "prefix-invalidation"],
       ["eventBandwidthSaturation", "bandwidth-saturation"],
+      ["eventDeviceLoss", "device-loss"],
+      ["eventPooledExhaustion", "pooled-memory-exhaustion"],
+      ["eventRemoteLatencySpike", "remote-latency-spike"],
     ].forEach(([id, eventName]) => {
       const el = document.getElementById(id);
       el.addEventListener("click", () => injectStressEvent(eventName));

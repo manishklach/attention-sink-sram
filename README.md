@@ -1,8 +1,8 @@
 # Attention-Sink SRAM
 
-Browser-native research and architecture simulator for `SRAM-aware transformer KV orchestration`, with deterministic experiments, trace replay, policy comparison, and exportable patent-support artifacts.
+Browser-native distributed memory-fabric simulator for `SRAM-aware transformer KV orchestration`, with deterministic experiments, cluster topology modeling, remote KV routing, pooled memory, and exportable research artifacts.
 
-Open [index.html](./index.html) directly in a browser. No build step, package manager, or framework is required.
+Open [index.html](./index.html) directly in a browser. No build step, framework, or package manager is required.
 
 ## Patent reference
 
@@ -12,159 +12,175 @@ Open [index.html](./index.html) directly in a browser. No build step, package ma
 
 ## Positioning
 
-This repository is no longer just an interactive placement demo. It is designed to illustrate how a future inference runtime could coordinate:
+This repository now models a future transformer inference stack where:
 
+- KV state is distributed across devices
+- SRAM is scarce and selectively promoted
+- HBM is local but not always sufficient
+- pooled memory absorbs colder or shared residency
+- decode fetches can traverse a fabric
+- scheduler decisions depend on topology, congestion, and deterministic windows
+
+It is designed as a browser-native systems-research and architecture simulator rather than a production runtime.
+
+## What it simulates
+
+- control-plane orchestration
+- deterministic execution windows
 - per-head and per-layer KV promotion
-- deterministic SRAM residency windows
-- decode-time routing across multiple memory tiers
-- shared-prefix reuse across tenants
-- DMA scheduling and promotion traffic
-- speculative rollback and reclamation
-- fragmentation, compaction, and relocation
-- runtime policy comparison
-- trace-driven, reproducible experimentation
+- multi-tier local memory
+- multi-device topology
+- fabric congestion and route saturation
+- remote KV fetch routing
+- pooled memory spillover
+- multicast and chained DMA waves
+- topology-aware scheduler decisions
+- degraded modes and rerouting
+- energy and cost modeling
+- trace-driven experiments and publication-style exports
 
-## Key features
+## Distributed cluster features
 
-- `Control-plane orchestrator`
-  Models global scheduling, promotion coordination, SRAM budgeting, decode routing, eviction coordination, and speculative rollback pressure.
+### Multi-device topology
 
-- `Trace-driven experimentation`
-  Queue named experiments, run batched configurations, sweep parameters, compare policies, and persist results locally.
+The simulator supports modeled devices such as:
 
-- `Deterministic reproducibility`
-  Seeded runs, fixed scheduling mode, replay verification, snapshot hashing, and experiment checksums.
+- GPU
+- accelerator
+- CPU-attached SRAM
+- pooled memory node
+- SmartNIC/DPU
+- storage offload node
 
-- `Multi-tier routing`
-  Simulates `SRAM`, `HBM`, `compressed HBM`, `host DRAM`, and `SSD/offload` routing behavior.
+Topologies currently illustrated:
 
-- `Per-head promotion`
-  Whole-token KV movement is not the only option. The simulator can model `per-head` and `per-head + layer-range` slice promotion.
+- `1D`
+- `mesh`
+- `fat-tree`
+- `star`
 
-- `Shared-prefix reuse`
-  Refcounted shared entries are promoted once and reused across attached sessions while they remain resident.
+### Fabric simulation
 
-- `Publication-style figures`
-  Research graphs, architecture figures, telemetry plots, and SVG exports are built in.
+Fabric modes:
 
-- `Notebook mode`
-  Save experiment observations and export them as Markdown or HTML summaries.
+- `PCIe-like`
+- `NVLink-like`
+- `CXL-like`
+- `Ethernet/RDMA-like`
 
-## Why per-head promotion matters
+The fabric layer models:
 
-The repo explicitly models why selective slice placement is more SRAM-efficient than full-token KV movement.
+- bandwidth
+- contention
+- congestion
+- latency
+- multicast efficiency
 
-Example:
+### Distributed KV placement
 
-- whole-token KV promotion with `8` KV heads stores all heads for a token
-- per-head promotion with `3` promoted heads stores only `3/8` of the head slices
-- this reduces per-token SRAM footprint by about `62.5%`
-- the saved footprint can be reinvested into more sink tokens, longer residency windows, or higher tenant concurrency
+Placement policies include:
 
-This is one of the core architecture ideas the simulator is meant to explain.
+- local-first
+- topology-aware
+- latency-aware
+- bandwidth-aware
+- pooled-memory optimized
+- sink-density optimized
 
-## Experiment framework
+These policies shape where KV slices land, how often remote fetches occur, and how aggressively pooled memory is used.
 
-The UI now supports:
+### Remote KV fetch routing
 
-- queueing experiments
-- running named experiments
-- batched execution
-- seeded replay
-- deterministic replay verification
+Decode lookups may resolve through:
+
+- local SRAM
+- remote SRAM
+- remote HBM
+- pooled memory
+- storage offload
+
+The simulator shows hop count, route congestion, fallback frequency, and approximate remote latency.
+
+### CXL-like pooling
+
+Pooled memory nodes model:
+
+- shared spillover capacity
+- shared-prefix residency
+- pooled occupancy
+- pooled fragmentation
+- remote access amplification
+
+### Distributed DMA orchestration
+
+DMA is no longer only local. The simulator includes modeled:
+
+- peer DMA
+- multicast waves
+- promotion waves
+- synchronized migrations
+- congestion amplification
+
+### Scheduler and degraded modes
+
+The scheduler exposes placement rationale for:
+
+- tenant placement
+- shared-prefix colocation
+- congestion mitigation
+- execution-window preservation
+
+Stress-event buttons model:
+
+- bandwidth saturation
+- device loss
+- pooled-memory exhaustion
+- remote latency spikes
+- existing local stressors such as eviction storms and DMA congestion
+
+## Research and experimentation
+
+The repository includes:
+
+- experiment queueing
+- batched runs
+- reproducibility checks
+- trace replay
 - parameter sweeps
-- side-by-side policy comparison
+- policy comparison
 - local result persistence
+- notebook mode
+- graph export
 
-Each experiment captures:
+## Distributed workload presets
 
-- workload
-- runtime policy
-- memory policy
-- eviction policy
-- promotion policy
-- seed
-- duration
-- parameter overrides
+In addition to earlier single-node style workloads, the simulator now includes cluster-oriented presets such as:
 
-## Reproducibility
+- hyperscale chatbot serving
+- retrieval-heavy cluster
+- pooled-memory constrained deployment
+- edge-cloud hybrid inference
 
-Reproducibility mode includes:
+The workload suite catalog in the docs also covers:
 
-- seeded RNG
-- deterministic event ordering
-- snapshot hashing
-- experiment checksums
-- replay consistency verification
-
-This is a `deterministic simulator`, so repeated runs with the same configuration should produce the same trace and checksum unless the config changes.
-
-## Workload replay and suites
-
-Built-in workload presets include:
-
-- chatbot assistant
-- long-context reasoning
-- RAG-heavy retrieval
-- code generation
+- enterprise multi-tenant serving
 - multi-agent orchestration
-- speculative decode stress
-- multi-tenant enterprise serving
-
-Research scenario suites described in the docs include:
-
-- long-context serving
-- enterprise multi-tenant
-- RAG-heavy inference
-- agentic orchestration
-- high speculative decode
-- SRAM constrained edge inference
-- extreme tenant burst
 - prefix-sharing hyperscale serving
+- long-context serving
 
-## Parameter sweeps
+## Research exports
 
-Sweepable parameters include:
+Use `Generate Research Artifact` to export:
 
-- SRAM size
-- DMA bandwidth
-- promotion threshold
-- speculative acceptance rate
-- residency window size
-- promoted heads
-- tenant count
-- decode concurrency
-
-The sweep engine supports:
-
-- linear sweeps
-- logarithmic sweeps
-- optional two-dimensional sweeps
-
-## Policy comparison
-
-The simulator can compare multiple runtime policies side by side, including:
-
-- latency optimized
-- bandwidth optimized
-- SRAM conservative
-- aggressive promotion
-- speculative-heavy
-- tenant-fairness optimized
-- sink-stability optimized
-- deterministic-residency optimized
-
-Comparisons include:
-
-- SRAM hit rate
-- latency proxy
-- DMA traffic
-- fragmentation
-- promotion churn
-- rollback pressure
-- fairness and reuse proxies
-
-## Publication-quality figures
+- topology snapshots
+- fabric congestion traces
+- migration traces
+- distributed routing traces
+- energy reports
+- cost/performance reports
+- benchmark summaries
+- telemetry dumps
+- architecture SVGs
 
 Use `Generate Paper Figures` to export:
 
@@ -173,119 +189,79 @@ Use `Generate Paper Figures` to export:
 - architecture diagrams
 - microarchitecture diagrams
 
-Use `Generate Research Artifact` to export:
-
-- experiment config
-- benchmark summaries
-- residency tables
-- orchestration trace
-- DMA trace
-- fragmentation map
-- routing CSV
-- telemetry dump
-- local result history
-
-## Notebook mode
-
-Notebook mode lets you:
-
-- annotate runs
-- save research notes locally
-- export Markdown summaries
-- export HTML summaries
-
 ## Screenshot placeholders
 
 Suggested screenshots for a paper, memo, or repo page:
 
-- orchestrator state
-- execution timeline
-- multi-tier memory panel
+- distributed topology panel
+- fabric + remote routing panel
+- scheduler panel
+- pooling panel
+- energy + economics panel
 - telemetry dashboard
 - experiment framework
-- parameter sweep graph
-- residency directory
-- fragmentation map
+- execution timeline
 
 ## Repository structure
 
-- `index.html` - browser-native UI shell
-- `styles.css` - layout, panels, dashboards, and SVG styling
-- `runtime-core.js` - shared state, model geometry, sessions, and head profiles
-- `orchestrator.js` - control-plane scheduling and residency pressure
-- `experiments.js` - experiment queue and batched execution
-- `sweeps.js` - parameter sweep generation
-- `reproducibility.js` - seeded replay, hashing, and deterministic verification
-- `replay.js` - trace validation and replay conversion
-- `persistence.js` - browser-local result storage
-- `notebook.js` - local notes and report export
-- `graphs.js` - reusable research graph rendering and export
-- `metrics.js` - research metrics and definitions
-- `policies.js` - runtime policy profiles
-- `workloads.js` - workload presets and scenario suites
+- `index.html` - browser-native simulator UI
+- `app.js` - render orchestration and snapshot pipeline
+- `runtime-core.js` - base simulator state, geometry, sessions
+- `topology.js` - multi-device topology modeling
+- `fabric.js` - interconnect modeling and congestion
+- `pooling.js` - pooled-memory simulation
+- `scheduler.js` - topology-aware scheduling
+- `migration.js` - distributed KV migration waves
+- `energy.js` - energy accounting
+- `economics.js` - infrastructure cost modeling
+- `routing.js` - local and distributed decode routing
 - `telemetry.js` - rolling metrics and event counters
-- `compression.js` - compressed KV behavior
-- `tiers.js` - multi-tier routing model
-- `fragmentation.js` - fragmentation, compaction, and relocation
-- `residency.js` - SRAM residency directory and shared-prefix reuse
-- `dma.js` - deterministic DMA scheduling
-- `routing.js` - decode routing decisions
-- `eviction.js` - eviction policy comparison
-- `speculative.js` - speculative decode and rollback behavior
-- `timeline.js` - event sequencing and playback
-- `benchmark.js` - benchmark comparison surfaces
-- `export.js` - research artifact export
-- `app.js` - UI binding and rendering orchestration
+- `experiments.js`, `sweeps.js`, `reproducibility.js`, `replay.js`, `persistence.js`, `notebook.js`, `graphs.js` - research framework
 
 ## Documentation
 
-Architecture and methodology:
+Core docs:
 
 - [Architecture](./docs/architecture.md)
-- [Benchmark methodology](./docs/benchmark-methodology.md)
+- [Experiments](./docs/experiments.md)
 - [Evaluation methodology](./docs/evaluation-methodology.md)
 - [Metrics](./docs/metrics.md)
 
-Runtime and control-plane:
+Distributed docs:
 
-- [Runtime orchestration](./docs/runtime-orchestration.md)
+- [Distributed topology](./docs/distributed-topology.md)
+- [Fabric simulation](./docs/fabric-simulation.md)
+- [CXL pooling](./docs/cxl-pooling.md)
+- [Distributed routing](./docs/distributed-routing.md)
+- [Topology-aware scheduling](./docs/topology-aware-scheduling.md)
+- [Energy modeling](./docs/energy-modeling.md)
+- [Economic modeling](./docs/economic-modeling.md)
+
+Additional docs:
+
 - [Control plane](./docs/control-plane.md)
-- [DMA engine](./docs/dma-engine.md)
 - [Deterministic execution](./docs/deterministic-execution.md)
 - [Multi-tier memory](./docs/multi-tier-memory.md)
-- [Fragmentation](./docs/fragmentation.md)
-- [Runtime policies](./docs/runtime-policies.md)
 - [Telemetry](./docs/telemetry.md)
-
-Workloads and experiments:
-
-- [Experiments](./docs/experiments.md)
-- [Reproducibility](./docs/reproducibility.md)
-- [Workloads](./docs/workloads.md)
 - [Policy comparison](./docs/policy-comparison.md)
-
-Patent-support mapping:
-
-- [Claim-support map](./docs/claim-map.md)
-- [Shared prefix reuse](./docs/shared-prefix-reuse.md)
-- [Speculative decode](./docs/speculative-decode.md)
+- [Workloads](./docs/workloads.md)
 
 ## Disclaimer
 
-This repository is a `deterministic educational systems simulator`, not a production inference runtime, hardware simulator, or full transformer benchmark.
+This repository is a `deterministic educational systems simulator`.
 
 It is intended to:
 
-- model orchestration concepts
-- illustrate tradeoffs between memory tiers
-- support explanation of architectural and patent-adjacent ideas
-- provide a reproducible experimentation surface for discussion
+- model architectural tradeoffs
+- illustrate cluster-level memory orchestration behavior
+- support explanation of patent-adjacent architecture ideas
+- provide a reproducible experimentation surface
 
 It does `not` claim:
 
-- cycle-accurate hardware equivalence
-- production model fidelity
-- measured production throughput
+- real hardware equivalence
+- cycle-accurate simulation
+- production inference performance
 - legal conclusions or patentability guarantees
 
 ## Maintainer

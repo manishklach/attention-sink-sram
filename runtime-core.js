@@ -38,6 +38,19 @@
     executionWindowDuration: 8,
     pinningDuration: 5,
     sharedPoolPercent: 24,
+    topologyType: "mesh",
+    fabricType: "nvlink-like",
+    distributedPlacementPolicy: "topology-aware",
+    deviceCount: 6,
+    pooledMemoryNodes: 1,
+    topologyWidth: 3,
+    remoteLatencyMultiplier: 1.4,
+    pooledSpillPercent: 18,
+    fabricBandwidth: 220,
+    fabricLinkLatency: 7,
+    multicastFanout: 3,
+    energyMode: "balanced",
+    costMode: "throughput-optimized",
     traceReplaySpeed: 1,
     timelineSpeed: 1,
     directorySort: "score",
@@ -72,6 +85,14 @@
     "executionWindowDuration",
     "pinningDuration",
     "sharedPoolPercent",
+    "deviceCount",
+    "pooledMemoryNodes",
+    "topologyWidth",
+    "remoteLatencyMultiplier",
+    "pooledSpillPercent",
+    "fabricBandwidth",
+    "fabricLinkLatency",
+    "multicastFanout",
     "seed",
   ];
 
@@ -83,6 +104,11 @@
     "workloadPreset",
     "compressionMode",
     "compactionMode",
+    "topologyType",
+    "fabricType",
+    "distributedPlacementPolicy",
+    "energyMode",
+    "costMode",
     "bytesPerElement",
     "timelineSpeed",
     "traceReplaySpeed",
@@ -134,6 +160,15 @@
     lastRun: null,
     telemetryHistory: [],
     stressEvents: {},
+  };
+
+  sim.deviceProfiles = {
+    GPU: { sram: 4, hbm: 96, dma: 3, bandwidth: 280, latency: 4, compute: 1.0 },
+    accelerator: { sram: 6, hbm: 72, dma: 4, bandwidth: 240, latency: 5, compute: 0.92 },
+    "CPU-attached SRAM": { sram: 10, hbm: 24, dma: 2, bandwidth: 140, latency: 8, compute: 0.42 },
+    "pooled memory node": { sram: 2, hbm: 160, dma: 3, bandwidth: 180, latency: 12, compute: 0.18 },
+    "SmartNIC/DPU": { sram: 3, hbm: 16, dma: 4, bandwidth: 210, latency: 6, compute: 0.24 },
+    "storage offload node": { sram: 1, hbm: 32, dma: 2, bandwidth: 90, latency: 22, compute: 0.08 },
   };
 
   sim.utils = {

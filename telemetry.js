@@ -15,6 +15,10 @@
         bandwidthSaved: snapshot.compression.bandwidthSavings,
         latencySaved: snapshot.orchestrator.latencySavings,
         sharingEfficiency: snapshot.sharedMetrics.duplicatePromotionsAvoided / Math.max(1, snapshot.sessions.length),
+        remoteFetchRate: snapshot.distributedRouting ? snapshot.distributedRouting.remoteFetchRate : 0,
+        fabricUtilization: snapshot.fabric ? snapshot.fabric.utilization : 0,
+        migrationStorms: snapshot.migration ? snapshot.migration.waves.length : 0,
+        clusterEnergyPerToken: snapshot.energy ? snapshot.energy.energyPerDecodeToken : 0,
       };
 
       if (options.persistHistory !== false) {
@@ -33,6 +37,8 @@
           dmaQueueOccupancy: sim.utils.average(history.map((item) => item.dmaQueueOccupancy)),
           rollbackRate: sim.utils.average(history.map((item) => item.rollbackRate)),
           deterministicDecode: sim.utils.average(history.map((item) => item.deterministicDecode)),
+          remoteFetchRate: sim.utils.average(history.map((item) => item.remoteFetchRate)),
+          fabricUtilization: sim.utils.average(history.map((item) => item.fabricUtilization)),
         },
         eventCounters: { ...sim.memory.stressEvents },
       };
