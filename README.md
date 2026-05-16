@@ -10,6 +10,8 @@ The simulator therefore treats KV state as something that can be observed, class
 
 Open [index.html](./index.html) directly in a browser. The project is dependency-free and requires no build step.
 
+Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
+
 ## Patent reference
 
 - Indian patent application number: `202641062302`
