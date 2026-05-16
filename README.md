@@ -24,6 +24,20 @@ This repository now includes executable implementations of the core algorithmic 
 
 That means the project is not only an architecture shell. It also contains working proof-of-concept implementations of the algorithmic ideas used by the simulator.
 
+## Deterministic Allocation and Isolation Boundary Modeling
+
+The repository now also models a separate layer of deterministic allocation and isolation-boundary behavior.
+
+That layer is meant to clarify a different concern from performance orchestration:
+
+- deterministic allocation matters for auditability and replay
+- SRAM/HBM tiering can be modeled with ring-buffer-style residency
+- protected reasoning-log regions can be modeled separately from KV performance regions
+- external tool payloads can be treated as untrusted memory objects
+- export, DMA, and overwrite permissions can be modeled as explicit region flags
+
+This is simulator-level modeling, not hardware enforcement. The code is intended to illustrate how a future runtime could separate performance-oriented residency decisions from isolation-oriented boundary checks without claiming production security.
+
 ## Patent reference
 
 - Indian patent application number: `202641062302`

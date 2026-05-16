@@ -659,6 +659,197 @@
     `;
   }
 
+  function buildMemoryBoundaryState(model, sessions, directory, speculative) {
+    const payloadState = sim.security.toolBoundary.buildState(sessions, sim.memory.toolPayloadCount, sim.state.seed);
+    const kvObjects = directory.entries.slice(0, 12).map((entry, index) => ({
+      objectId: `kv-${entry.entryId}`,
+      sessionId: entry.sessionId,
+      regionType: entry.shared ? "SHARED_PREFIX" : "KV_PERF",
+      sizeBytes: entry.bytes,
+      priority: Math.round(entry.sinkScore * 100) - index,
+      shared: entry.shared,
+      pinned: entry.pinned,
+      protected: false,
+      replayProtected: entry.pinned,
+    }));
+    const reasoningObjects = sessions.map((session, index) => ({
+      objectId: `reason-log-${session.sessionId}`,
+      sessionId: session.sessionId,
+      regionType: "REASONING_LOG_PROTECTED",
+      sizeBytes: 4096 + index * 512,
+      priority: 1000 - index,
+      shared: false,
+      pinned: true,
+      protected: true,
+      replayProtected: true,
+    }));
+    const speculativeObjects = sessions.slice(0, Math.max(1, Math.min(2, speculative.rows.length))).map((session, index) => ({
+      objectId: `spec-${session.sessionId}-${index + 1}`,
+      sessionId: session.sessionId,
+      regionType: "SPECULATIVE_TEMP",
+      sizeBytes: 2048,
+      priority: 150 - index,
+      shared: false,
+      pinned: false,
+      protected: false,
+      replayProtected: false,
+    }));
+    const exportObject = {
+      objectId: "export-trace-report",
+      sessionId: "system",
+      regionType: "EXPORT_TRACE",
+      sizeBytes: 1536,
+      priority: 50,
+      shared: false,
+      pinned: false,
+      protected: false,
+      replayProtected: false,
+    };
+
+    const objects = [...reasoningObjects, ...kvObjects, ...speculativeObjects, ...payloadState.payloads, exportObject]
+      .map((object) => sim.security.isolationBoundary.enforceRegionFlags(object));
+    const allocationMode = sim.state.executionPolicy === "deterministic-residency-optimized"
+      ? "residency-contract protected"
+      : sim.state.partitionPolicy === "shared-prefix-reserved-pool"
+        ? "shared-prefix protected"
+        : sim.state.partitionPolicy === "weighted-by-tenant-priority"
+          ? "priority partitions"
+          : "ring buffer";
+    const sramCapacityBytes = sim.computeKvBytes(model) * sim.state.sramBudget;
+    const hbmCapacityBytes = sim.computeKvBytes(model) * Math.max(8, sim.state.decodeConcurrency * 2);
+    const allocationState = sim.core.deterministicAllocator.allocate(objects, {
+      mode: allocationMode,
+      sramCapacityBytes,
+      hbmCapacityBytes,
+      compactionEnabled: sim.state.compactionMode === "enabled",
+    });
+    const replayState = sim.core.deterministicAllocator.allocate(objects, {
+      mode: allocationMode,
+      sramCapacityBytes,
+      hbmCapacityBytes,
+      compactionEnabled: sim.state.compactionMode === "enabled",
+    });
+    allocationState.replayVerification = sim.core.deterministicAllocator.verifyDeterministicReplay(allocationState.trace, replayState.trace);
+
+    const regions = allocationState.trace
+      .filter((entry) => entry.offset !== null)
+      .map((entry) => sim.security.isolationBoundary.enforceRegionFlags({
+        objectId: entry.objectId,
+        sessionId: entry.sessionId,
+        regionType: entry.regionType,
+        tier: entry.tier,
+        offset: entry.offset,
+        sizeBytes: entry.sizeBytes,
+      }));
+
+    const reasoningTarget = regions.find((region) => region.regionType === "REASONING_LOG_PROTECTED");
+    const mappingAttempts = [];
+    payloadState.payloads.forEach((payload, index) => {
+      if (index < sim.memory.forbiddenMappingAttempts && reasoningTarget) {
+        mappingAttempts.push(sim.security.toolBoundary.attemptForbiddenMapping(payload, reasoningTarget));
+      }
+    });
+    const exportRequests = regions
+      .filter((region) => region.regionType === "REASONING_LOG_PROTECTED" || region.regionType === "EXPORT_TRACE")
+      .map((region) => ({
+        objectId: region.objectId,
+        flags: region.flags,
+        allowed: !!region.flags.exportAllowed,
+        reason: region.flags.exportAllowed ? "region marked exportable" : "region is protected from export",
+      }));
+    const auditLog = sim.security.isolationBoundary.generateIsolationAuditLog({
+      regions,
+      mappingAttempts,
+      exportRequests,
+    });
+    const invariantReport = sim.security.audit.buildInvariantReport(allocationState, {
+      regions,
+      mappingAttempts,
+      exportRequests,
+    }, mappingAttempts);
+
+    return {
+      payloadState,
+      allocationState,
+      regions,
+      mappingAttempts,
+      exportRequests,
+      auditLog,
+      invariantReport,
+    };
+  }
+
+  function renderMemoryBoundaryPanel(memoryBoundary) {
+    const { allocationState, payloadState, regions, mappingAttempts, auditLog, invariantReport } = memoryBoundary;
+    document.getElementById("allocationSummary").innerHTML = `
+      <div class="sharedStat"><span>Allocator mode</span><strong>${allocationState.mode}</strong></div>
+      <div class="sharedStat"><span>Replay verification</span><strong>${allocationState.replayVerification.passed ? "PASS" : "FAIL"}</strong></div>
+      <div class="sharedStat"><span>SRAM used</span><strong>${bytesToHuman(allocationState.sram.metrics.usedBytes)}</strong></div>
+      <div class="sharedStat"><span>HBM spillover</span><strong>${bytesToHuman(allocationState.hbm.usedBytes)}</strong></div>
+    `;
+    document.getElementById("allocationTrace").innerHTML = allocationState.trace.slice(0, 14).map((entry) => `
+      <div class="stackItem">
+        <strong>${entry.objectId}</strong>
+        <span>${entry.regionType} · ${entry.tier} · offset ${entry.offset === null ? "failed" : entry.offset}</span>
+        <span>step ${entry.allocationStep} · generation ${entry.generation}</span>
+        <span>${entry.deterministicReason}</span>
+      </div>
+    `).join("");
+
+    document.getElementById("ringBufferSummary").innerHTML = `
+      <div class="sharedStat"><span>Ring head</span><strong>${allocationState.sram.metrics.head}</strong></div>
+      <div class="sharedStat"><span>Wrap count</span><strong>${allocationState.sram.metrics.wrapCount}</strong></div>
+      <div class="sharedStat"><span>Pinned bytes</span><strong>${bytesToHuman(allocationState.sram.metrics.pinnedBytes)}</strong></div>
+      <div class="sharedStat"><span>Protected bytes</span><strong>${bytesToHuman(allocationState.sram.metrics.protectedBytes)}</strong></div>
+      <div class="sharedStat"><span>Reclaimable bytes</span><strong>${bytesToHuman(allocationState.sram.metrics.reclaimableBytes)}</strong></div>
+      <div class="sharedStat"><span>Fragmentation</span><strong>${formatNumber(allocationState.sram.metrics.fragmentationPercent, 1)}%</strong></div>
+    `;
+    const blocks = Array.from({ length: 12 }, (_, index) => {
+      const slotStart = index * Math.floor(allocationState.sram.metrics.usedBytes / Math.max(1, 8) || 4096);
+      const entry = allocationState.sram.entries.find((candidate) => candidate.offset <= slotStart && candidate.offset + candidate.sizeBytes > slotStart);
+      if (!entry) {
+        return `<div class="fragBlock free"><span>${index}</span><small>free</small></div>`;
+      }
+      const status = entry.protected ? "pinned" : entry.shared ? "shared" : "allocated";
+      return `<div class="fragBlock ${status}"><span>${index}</span><small>${entry.regionType}</small></div>`;
+    });
+    document.getElementById("ringBufferMap").innerHTML = blocks.join("");
+
+    document.getElementById("isolationBoundaryView").innerHTML = `
+      <div class="stackItem">
+        <strong>${payloadState.trustedZoneLabel}</strong>
+        <span>${regions.filter((region) => region.regionType !== "TOOL_PAYLOAD_UNTRUSTED").length} regions tracked</span>
+      </div>
+      <div class="stackItem">
+        <strong>${payloadState.untrustedZoneLabel}</strong>
+        <span>${payloadState.payloads.length} payload objects</span>
+        <span>Allowed references ${payloadState.allowedReferences.length}</span>
+      </div>
+      ${mappingAttempts.length ? mappingAttempts.map((attempt) => `
+        <div class="stackItem">
+          <strong>${attempt.sourceId} → ${attempt.targetId}</strong>
+          <span class="${attempt.allowed ? "goodText" : "dangerText"}">${attempt.allowed ? "allowed" : "blocked"}</span>
+          <span>${attempt.reason}</span>
+        </div>
+      `).join("") : `<div class="stackEmpty">No forbidden mapping attempts yet.</div>`}
+    `;
+
+    document.getElementById("isolationAuditLog").innerHTML = auditLog.entries.length ? auditLog.entries.map((entry) => `
+      <div class="stackItem">
+        <strong>${entry.id}</strong>
+        <span>${entry.type} · ${entry.allowed ? "allowed" : "blocked"}</span>
+        <span>${entry.reason}</span>
+      </div>
+    `).join("") : `<div class="stackEmpty">Generate the audit report to populate this log.</div>`;
+
+    document.getElementById("invariantReport").innerHTML = invariantReport.checks.map((check) => `
+      <div class="stackItem">
+        <strong>${check.name}</strong>
+        <span class="${check.passed ? "goodText" : "dangerText"}">${check.passed ? "PASS" : "FAIL"}</span>
+      </div>
+    `).join("");
+  }
+
   function renderAbi(abi) {
     document.getElementById("abiSummary").innerHTML = `
       <div class="sharedStat"><span>ABI mode</span><strong>${abi.mode}</strong></div>
@@ -1402,6 +1593,7 @@
       launch,
     });
     const algorithmDemo = buildAlgorithmDemo(model);
+    const memoryBoundary = buildMemoryBoundaryState(model, sessions, directory, speculative);
 
     const snapshot = {
       model,
@@ -1440,6 +1632,7 @@
       telemetry,
       metricsSummary,
       algorithmDemo,
+      memoryBoundary,
       workload: sim.workloads.getActiveWorkload(),
       state: sim.utils.cloneState(),
     };
@@ -1465,6 +1658,7 @@
     renderIntegration(snapshot.integration);
     renderLifetimes(snapshot.lifetimes);
     renderCoreAlgorithmDemo(snapshot.algorithmDemo);
+    renderMemoryBoundaryPanel(snapshot.memoryBoundary);
     renderHeadProfiles(snapshot.headProfiles);
     renderHeatmap(snapshot.headProfiles, snapshot.layerBuckets);
     renderEfficiency(snapshot.model, snapshot.promotedHeads);
@@ -1848,6 +2042,21 @@
     document.getElementById("generateAttention").addEventListener("click", runSimulation);
     document.getElementById("computeSinkScores").addEventListener("click", runSimulation);
     document.getElementById("verifySplitMerge").addEventListener("click", runSimulation);
+    document.getElementById("runDeterministicAllocation").addEventListener("click", runSimulation);
+    document.getElementById("replayAllocationTrace").addEventListener("click", () => {
+      sim.memory.allocationReplayCounter += 1;
+      runSimulation();
+    });
+    document.getElementById("verifyAllocationReplay").addEventListener("click", runSimulation);
+    document.getElementById("injectToolPayload").addEventListener("click", () => {
+      sim.memory.toolPayloadCount = Math.min(6, sim.memory.toolPayloadCount + 1);
+      runSimulation();
+    });
+    document.getElementById("attemptForbiddenMapping").addEventListener("click", () => {
+      sim.memory.forbiddenMappingAttempts = Math.min(6, sim.memory.forbiddenMappingAttempts + 1);
+      runSimulation();
+    });
+    document.getElementById("generateIsolationAudit").addEventListener("click", runSimulation);
     document.getElementById("toggleThesisMode").addEventListener("click", () => {
       sim.thesis.toggle();
       runSimulation();

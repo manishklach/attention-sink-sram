@@ -664,6 +664,34 @@
 
         <div class="gridPair">
           <div class="panel">
+            <h2>Deterministic Allocation &amp; Isolation Boundaries</h2>
+            <p class="subtle">
+              Simulator-level model of deterministic allocation, SRAM/HBM ring residency, protected reasoning-log regions,
+              and untrusted tool payload boundaries. This is not real hardware enforcement.
+            </p>
+            <div class="buttonRow">
+              <button id="runDeterministicAllocation" class="secondary">Run deterministic allocation</button>
+              <button id="replayAllocationTrace" class="secondary">Replay allocation trace</button>
+              <button id="verifyAllocationReplay" class="secondary">Verify replay</button>
+              <button id="injectToolPayload" class="secondary">Inject tool payload</button>
+              <button id="attemptForbiddenMapping" class="secondary">Attempt forbidden mapping</button>
+              <button id="generateIsolationAudit" class="secondary">Generate isolation audit report</button>
+            </div>
+            <div id="allocationSummary" class="telemetryCards"></div>
+            <div id="allocationTrace" class="stackList"></div>
+          </div>
+          <div class="panel">
+            <h2>Ring Buffer, Boundaries, and Invariants</h2>
+            <div id="ringBufferSummary" class="telemetryCards"></div>
+            <div id="ringBufferMap" class="fragmentationMap"></div>
+            <div id="isolationBoundaryView" class="stackList"></div>
+            <div id="isolationAuditLog" class="stackList"></div>
+            <div id="invariantReport" class="stackList"></div>
+          </div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
             <h2>Deterministic Execution Windows</h2>
             <div id="executionWindows" class="windowsPanel"></div>
           </div>
@@ -1006,8 +1034,13 @@
 
   <script src="runtime-core.js"></script>
   <script src="js/core/attention-generator.js"></script>
+  <script src="js/core/ring-buffer.js"></script>
+  <script src="js/core/deterministic-allocator.js"></script>
   <script src="js/core/sink-score.js"></script>
   <script src="js/core/merge.js"></script>
+  <script src="js/security/isolation-boundary.js"></script>
+  <script src="js/security/tool-boundary.js"></script>
+  <script src="js/security/audit.js"></script>
   <script src="thesis.js"></script>
   <script src="reproducibility.js"></script>
   <script src="persistence.js"></script>

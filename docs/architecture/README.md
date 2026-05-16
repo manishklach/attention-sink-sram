@@ -8,3 +8,5 @@ This section collects the architectural framing documents.
 - [Research Roadmap](../research-roadmap.md)
 - [Runtime Integration](../runtime-integration.md)
 - [Distributed Topology](../distributed-topology.md)
+- [Deterministic Allocation](../deterministic-allocation.md)
+- [Ring-Buffer Tiering](../ring-buffer-tiering.md)

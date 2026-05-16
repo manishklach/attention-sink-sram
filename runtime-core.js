@@ -187,6 +187,9 @@
     importedRuntimeTrace: null,
     thesisModeActive: true,
     thesisStep: 0,
+    toolPayloadCount: 1,
+    forbiddenMappingAttempts: 0,
+    allocationReplayCounter: 0,
   };
 
   sim.deviceProfiles = {

@@ -7,3 +7,5 @@ This section covers runtime-facing interfaces and coordination surfaces.
 - [Runtime Integration](../runtime-integration.md)
 - [DMA Engine](../dma-engine.md)
 - [Topology-Aware Scheduling](../topology-aware-scheduling.md)
+- [Hardware Mapping](../hardware-mapping.md)
+- [Isolation Boundaries](../security/isolation-boundaries.md)

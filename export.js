@@ -51,6 +51,13 @@
         rankedSinkTokens: run.algorithmDemo.sinkScores.rankedTokens,
         promotionDecision: run.algorithmDemo.promotionDecision,
         mergeVerificationResult: run.algorithmDemo.mergeVerification,
+        allocationTrace: run.memoryBoundary.allocationState.trace,
+        deterministicReplayReport: run.memoryBoundary.allocationState.replayVerification,
+        ringBufferState: run.memoryBoundary.allocationState.sram,
+        isolationAuditLog: run.memoryBoundary.auditLog,
+        protectedRegionMap: run.memoryBoundary.regions,
+        forbiddenMappingAttempts: run.memoryBoundary.mappingAttempts,
+        invariantReport: run.memoryBoundary.invariantReport,
         topology: run.topology,
         fabric: run.fabric,
         pooling: run.pooling,
@@ -95,6 +102,13 @@
         promotionDecision: run.algorithmDemo.promotionDecision,
         mergeVerificationResult: run.algorithmDemo.mergeVerification,
       }, null, 2);
+      const allocationJson = JSON.stringify(run.memoryBoundary.allocationState.trace, null, 2);
+      const replayJson = JSON.stringify(run.memoryBoundary.allocationState.replayVerification, null, 2);
+      const ringJson = JSON.stringify(run.memoryBoundary.allocationState.sram, null, 2);
+      const isolationJson = JSON.stringify(run.memoryBoundary.auditLog, null, 2);
+      const protectedJson = JSON.stringify(run.memoryBoundary.regions, null, 2);
+      const forbiddenJson = JSON.stringify(run.memoryBoundary.mappingAttempts, null, 2);
+      const invariantJson = JSON.stringify(run.memoryBoundary.invariantReport, null, 2);
       const snapshotJson = JSON.stringify(snapshot, null, 2);
       const csvRows = [
         ["sessionId", "step", "decision", "sramHits", "hbmFallback", "latency"],
@@ -127,6 +141,13 @@
       downloadText("lifetime-analysis.json", lifetimesJson, "application/json");
       downloadText("runtime-integration.json", integrationJson, "application/json");
       downloadText("core-algorithms.json", algorithmJson, "application/json");
+      downloadText("allocation-trace.json", allocationJson, "application/json");
+      downloadText("deterministic-replay-report.json", replayJson, "application/json");
+      downloadText("ring-buffer-state.json", ringJson, "application/json");
+      downloadText("isolation-audit-log.json", isolationJson, "application/json");
+      downloadText("protected-region-map.json", protectedJson, "application/json");
+      downloadText("forbidden-mapping-attempts.json", forbiddenJson, "application/json");
+      downloadText("invariant-report.json", invariantJson, "application/json");
       downloadText("routing-statistics.csv", csvRows, "text/csv");
       downloadText("telemetry-dump.json", telemetryJson, "application/json");
       downloadText("benchmark-report.json", benchmarkJson, "application/json");

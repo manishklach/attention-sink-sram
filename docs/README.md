@@ -32,3 +32,11 @@ If you are new to the repository, start with [Start Here](./start-here.md).
 - [Core Algorithms](./core-algorithms.md)
 - [Sink Score](./sink-score.md)
 - [Log-Sum-Exp Merge](./log-sum-exp-merge.md)
+
+## Allocation and isolation references
+
+- [Deterministic Allocation](./deterministic-allocation.md)
+- [Ring-Buffer Tiering](./ring-buffer-tiering.md)
+- [Hardware Mapping](./hardware-mapping.md)
+- [Isolation Boundaries](./security/isolation-boundaries.md)
+- [Future CUDA / Triton Directions](./future-cuda-triton.md)
