@@ -477,6 +477,188 @@
     `;
   }
 
+  function createSeededRng(seed) {
+    let state = (Number(seed) || 1) >>> 0;
+    return function rng() {
+      state = (1664525 * state + 1013904223) >>> 0;
+      return state / 4294967296;
+    };
+  }
+
+  function buildAlgorithmDemo(model) {
+    const algorithmConfig = {
+      layers: Math.min(8, Math.max(4, Math.floor(sim.state.layers / 10))),
+      heads: Math.min(8, sim.state.kvHeads),
+      sequenceLength: Math.min(128, Math.max(48, sim.state.promptLength + sim.state.decodeSteps + 24)),
+      sinkTokenIds: Array.from({ length: Math.min(4, Math.max(2, sim.state.sharedPrefixLength)) }, (_, index) => index),
+      sinkStrength: Math.min(0.8, Math.max(0.2, sim.state.sinkStrength * 0.5)),
+      localWindow: Math.min(24, Math.max(8, sim.state.sharedPrefixLength * 3)),
+      retrievalSpikeProbability: 0.08,
+      seed: sim.state.seed,
+    };
+    const attention = sim.core.attentionGenerator.generateAttentionTensor(algorithmConfig);
+    const selectedStart = Math.floor((sim.state.promotedLayerStart / Math.max(1, sim.state.layers - 1)) * (algorithmConfig.layers - 1));
+    const selectedEnd = Math.floor((sim.state.promotedLayerEnd / Math.max(1, sim.state.layers - 1)) * (algorithmConfig.layers - 1));
+    const layerWeights = Array.from({ length: algorithmConfig.layers }, (_, layer) => (
+      layer >= selectedStart && layer <= selectedEnd ? sim.state.layerBoostMultiplier : 1
+    ));
+    const headWeights = attention.headProfiles.map((profile, index) => (
+      sim.memory.headEligibilityOverrides[index % sim.memory.headEligibilityOverrides.length] ? 1.1 : 1
+    ));
+    const sinkResult = sim.core.sinkScore.computeSinkScores(attention.tensor, {
+      layerWeights,
+      headWeights,
+      threshold: sim.state.sinkThreshold,
+      normalizationMode: "raw",
+      emaAlpha: sim.state.emaAlpha,
+    });
+    const emaResult = sim.core.sinkScore.computeSinkScores(attention.tensor, {
+      layerWeights,
+      headWeights,
+      threshold: sim.state.sinkThreshold,
+      normalizationMode: "ema-smoothed",
+      emaAlpha: sim.state.emaAlpha,
+    });
+    const rankedTokens = sinkResult.rankedTokens.slice(0, 12);
+    const promotedTokenIds = sinkResult.sinkTokens
+      .slice(0, Math.max(2, Math.min(sim.state.sramBudget, 8)))
+      .map((entry) => entry.tokenId);
+    const topTokenId = rankedTokens[0] ? rankedTokens[0].tokenId : 0;
+    const breakdown = sim.core.sinkScore.computeSinkScoreBreakdown(attention.tensor, topTokenId, {
+      layerWeights,
+      headWeights,
+      normalizationMode: "raw",
+      emaAlpha: sim.state.emaAlpha,
+    });
+
+    const rng = createSeededRng(sim.state.seed + 17);
+    const dim = Math.min(16, Math.max(8, Math.floor(model.headDim / 8)));
+    const Q = Array.from({ length: dim }, () => (rng() * 2) - 1);
+    const K = Array.from({ length: algorithmConfig.sequenceLength }, (_, tokenId) => (
+      Array.from({ length: dim }, (_, axis) => {
+        const sinkBias = promotedTokenIds.includes(tokenId) ? 0.45 : 0.08;
+        return ((rng() * 2) - 1) + sinkBias * Math.cos((axis + 1) * (tokenId + 1));
+      })
+    ));
+    const V = Array.from({ length: algorithmConfig.sequenceLength }, (_, tokenId) => (
+      Array.from({ length: dim }, (_, axis) => ((rng() * 2) - 1) + (promotedTokenIds.includes(tokenId) ? 0.25 : 0) + axis * 0.01)
+    ));
+    const sinkPartition = promotedTokenIds.length ? promotedTokenIds.slice() : rankedTokens.slice(0, 4).map((entry) => entry.tokenId);
+    const bulkPartition = Array.from({ length: algorithmConfig.sequenceLength }, (_, tokenId) => tokenId).filter((tokenId) => !sinkPartition.includes(tokenId));
+    const mergeVerification = sim.core.merge.verifyMergeAgainstFullAttention(Q, K, V, [sinkPartition, bulkPartition]);
+
+    return {
+      config: algorithmConfig,
+      attentionSummary: attention.summary,
+      attentionValidation: attention.validation,
+      attentionTensor: attention.tensor,
+      headProfiles: attention.headProfiles,
+      sinkScores: sinkResult,
+      emaSinkScores: emaResult,
+      sinkBreakdown: breakdown,
+      promotionDecision: {
+        threshold: sim.state.sinkThreshold,
+        promotedTokenIds: sinkPartition,
+        sinkPartition,
+        bulkPartition,
+      },
+      mergeVerification,
+    };
+  }
+
+  function renderCoreAlgorithmDemo(algorithmDemo) {
+    const summary = document.getElementById("algorithmSummary");
+    const topSink = algorithmDemo.sinkScores.rankedTokens[0];
+    summary.innerHTML = `
+      <div class="sharedStat"><span>Tensor validation</span><strong>${algorithmDemo.attentionValidation.valid ? "Valid" : "Invalid"}</strong></div>
+      <div class="sharedStat"><span>Top sink token</span><strong>${topSink ? topSink.tokenId : "n/a"}</strong></div>
+      <div class="sharedStat"><span>Promoted sinks</span><strong>${algorithmDemo.promotionDecision.promotedTokenIds.length}</strong></div>
+      <div class="sharedStat"><span>Merge status</span><strong>${algorithmDemo.mergeVerification.passed ? "PASS" : "FAIL"}</strong></div>
+    `;
+
+    document.getElementById("attentionTensorSummary").innerHTML = `
+      <div class="stackItem">
+        <strong>Generator configuration</strong>
+        <span>${algorithmDemo.config.layers} layers · ${algorithmDemo.config.heads} heads · ${algorithmDemo.config.sequenceLength} tokens</span>
+        <span>sink tokens [${algorithmDemo.config.sinkTokenIds.join(", ")}], sink strength ${formatNumber(algorithmDemo.config.sinkStrength, 2)}</span>
+      </div>
+      <div class="stackItem">
+        <strong>Validation</strong>
+        <span>row deviation ${algorithmDemo.attentionValidation.maxRowDeviation.toExponential(2)}</span>
+        <span>causal violations ${algorithmDemo.attentionValidation.causalViolations}</span>
+      </div>
+      <div class="stackItem">
+        <strong>Attention patterns</strong>
+        <span>top tokens ${algorithmDemo.attentionSummary.topTokens.slice(0, 5).map((entry) => `${entry.tokenId}:${formatNumber(entry.score, 2)}`).join(" | ")}</span>
+      </div>
+    `;
+
+    document.getElementById("sinkScoreSummary").innerHTML = `
+      <div class="stackItem">
+        <strong>Cumulative sink score</strong>
+        <span>S(t) = Σ_l Σ_h Σ_i A(l,h,i,t)</span>
+        <span>normalization mode ${algorithmDemo.sinkScores.normalizationMode}</span>
+      </div>
+      <div class="stackItem">
+        <strong>Top-token breakdown</strong>
+        <span>token ${algorithmDemo.sinkBreakdown.tokenId} raw score ${formatNumber(algorithmDemo.sinkBreakdown.score, 4)}</span>
+        <span>top layer contributions ${algorithmDemo.sinkBreakdown.byLayer.slice().sort((a, b) => b.contribution - a.contribution).slice(0, 3).map((entry) => `L${entry.layer}:${formatNumber(entry.contribution, 3)}`).join(" | ")}</span>
+        <span>top head contributions ${algorithmDemo.sinkBreakdown.byHead.slice().sort((a, b) => b.contribution - a.contribution).slice(0, 3).map((entry) => `H${entry.head}:${formatNumber(entry.contribution, 3)}`).join(" | ")}</span>
+      </div>
+      <div class="stackItem">
+        <strong>EMA-smoothed comparison</strong>
+        <span>top EMA token ${algorithmDemo.emaSinkScores.rankedTokens[0]?.tokenId ?? "n/a"} score ${formatNumber(algorithmDemo.emaSinkScores.rankedTokens[0]?.score ?? 0, 4)}</span>
+      </div>
+    `;
+
+    document.getElementById("sinkRankingTable").innerHTML = algorithmDemo.sinkScores.rankedTokens.slice(0, 8).map((entry, index) => `
+      <div class="stackItem">
+        <strong>#${index + 1} token ${entry.tokenId}</strong>
+        <span>score ${formatNumber(entry.score, 4)}</span>
+        <span>${algorithmDemo.sinkScores.sinkTokens.some((sink) => sink.tokenId === entry.tokenId) ? "classified as sink" : "below threshold"}</span>
+      </div>
+    `).join("");
+
+    document.getElementById("promotionDecision").innerHTML = `
+      <div class="stackItem">
+        <strong>Threshold classification</strong>
+        <span>threshold ${formatNumber(algorithmDemo.promotionDecision.threshold, 2)} of max score</span>
+        <span>${algorithmDemo.sinkScores.sinkTokens.length} tokens exceed threshold</span>
+      </div>
+      <div class="stackItem">
+        <strong>SRAM promotion set</strong>
+        <span>sink partition [${algorithmDemo.promotionDecision.sinkPartition.join(", ")}]</span>
+        <span>bulk partition size ${algorithmDemo.promotionDecision.bulkPartition.length}</span>
+      </div>
+    `;
+
+    document.getElementById("mergeVerification").innerHTML = `
+      <div class="stackItem">
+        <strong>Split-path merge</strong>
+        <span>sink partition ${algorithmDemo.promotionDecision.sinkPartition.length} tokens</span>
+        <span>bulk partition ${algorithmDemo.promotionDecision.bulkPartition.length} tokens</span>
+      </div>
+      <div class="stackItem">
+        <strong>Reference vs merged</strong>
+        <span>merged lse ${formatNumber(algorithmDemo.mergeVerification.mergedLSE, 6)}</span>
+        <span>reference lse ${formatNumber(algorithmDemo.mergeVerification.referenceLSE, 6)}</span>
+      </div>
+      <div class="stackItem">
+        <strong>Merged output preview</strong>
+        <span>${algorithmDemo.mergeVerification.mergedOutput.slice(0, 5).map((value) => formatNumber(value, 6)).join(", ")}</span>
+      </div>
+    `;
+
+    document.getElementById("mergeErrorSummary").innerHTML = `
+      <div class="stackItem">
+        <strong>Numerical verification</strong>
+        <span class="${algorithmDemo.mergeVerification.passed ? "goodText" : "dangerText"}">${algorithmDemo.mergeVerification.passed ? "PASS" : "FAIL"}</span>
+        <span>max abs error ${algorithmDemo.mergeVerification.maxAbsError.toExponential(2)}</span>
+        <span>mean abs error ${algorithmDemo.mergeVerification.meanAbsError.toExponential(2)}</span>
+      </div>
+    `;
+  }
+
   function renderAbi(abi) {
     document.getElementById("abiSummary").innerHTML = `
       <div class="sharedStat"><span>ABI mode</span><strong>${abi.mode}</strong></div>
@@ -1219,6 +1401,7 @@
       paging,
       launch,
     });
+    const algorithmDemo = buildAlgorithmDemo(model);
 
     const snapshot = {
       model,
@@ -1256,6 +1439,7 @@
       architectureState,
       telemetry,
       metricsSummary,
+      algorithmDemo,
       workload: sim.workloads.getActiveWorkload(),
       state: sim.utils.cloneState(),
     };
@@ -1280,6 +1464,7 @@
     renderLaunch(snapshot.launch);
     renderIntegration(snapshot.integration);
     renderLifetimes(snapshot.lifetimes);
+    renderCoreAlgorithmDemo(snapshot.algorithmDemo);
     renderHeadProfiles(snapshot.headProfiles);
     renderHeatmap(snapshot.headProfiles, snapshot.layerBuckets);
     renderEfficiency(snapshot.model, snapshot.promotedHeads);
@@ -1660,6 +1845,9 @@
     document.getElementById("detachShared").addEventListener("click", () => attachSharedPrefix(false));
     document.getElementById("generateSnapshot").addEventListener("click", () => sim.exporter.exportSnapshot());
     document.getElementById("generatePaperFigures").addEventListener("click", generatePaperFigures);
+    document.getElementById("generateAttention").addEventListener("click", runSimulation);
+    document.getElementById("computeSinkScores").addEventListener("click", runSimulation);
+    document.getElementById("verifySplitMerge").addEventListener("click", runSimulation);
     document.getElementById("toggleThesisMode").addEventListener("click", () => {
       sim.thesis.toggle();
       runSimulation();

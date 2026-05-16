@@ -15,6 +15,7 @@ If you are new to the repository, start with [Start Here](./start-here.md).
 7. [Comparative Analysis](./comparative-analysis.md)
 8. [Why This Matters](./why-this-matters.md)
 9. [Research Roadmap](./research-roadmap.md)
+10. [Core Algorithms](./core-algorithms.md)
 
 ## Section indexes
 
@@ -25,3 +26,9 @@ If you are new to the repository, start with [Start Here](./start-here.md).
 - [Experiments](./experiments/README.md)
 - [Comparisons](./comparisons/README.md)
 - [Exports](./exports/README.md)
+
+## Algorithm references
+
+- [Core Algorithms](./core-algorithms.md)
+- [Sink Score](./sink-score.md)
+- [Log-Sum-Exp Merge](./log-sum-exp-merge.md)

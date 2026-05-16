@@ -549,6 +549,49 @@
           </div>
         </div>
 
+        <div class="panel">
+          <h2>Core Algorithm Demo</h2>
+          <p class="subtle">
+            Algorithmic proof-of-concept surface for cumulative sink scoring and numerically stable split-path decode merge.
+          </p>
+          <div class="buttonRow">
+            <button id="generateAttention" class="secondary">Generate Attention</button>
+            <button id="computeSinkScores" class="secondary">Compute Sink Scores</button>
+            <button id="verifySplitMerge" class="secondary">Verify Split Merge</button>
+          </div>
+          <div id="algorithmSummary" class="telemetryCards"></div>
+          <div class="gridPair">
+            <div class="panel">
+              <h3>Synthetic Attention Tensor</h3>
+              <div id="attentionTensorSummary" class="stackList"></div>
+            </div>
+            <div class="panel">
+              <h3>Cumulative Sink Score S(t)</h3>
+              <div id="sinkScoreSummary" class="stackList"></div>
+            </div>
+          </div>
+          <div class="gridPair">
+            <div class="panel">
+              <h3>Sink Token Ranking</h3>
+              <div id="sinkRankingTable" class="stackList"></div>
+            </div>
+            <div class="panel">
+              <h3>SRAM Promotion Decision</h3>
+              <div id="promotionDecision" class="stackList"></div>
+            </div>
+          </div>
+          <div class="gridPair">
+            <div class="panel">
+              <h3>Split Decode Merge</h3>
+              <div id="mergeVerification" class="stackList"></div>
+            </div>
+            <div class="panel">
+              <h3>Numerical Verification</h3>
+              <div id="mergeErrorSummary" class="stackList"></div>
+            </div>
+          </div>
+        </div>
+
         <div class="gridPair">
           <div class="panel">
             <h2>Distributed Topology</h2>
@@ -962,6 +1005,9 @@
   </main>
 
   <script src="runtime-core.js"></script>
+  <script src="js/core/attention-generator.js"></script>
+  <script src="js/core/sink-score.js"></script>
+  <script src="js/core/merge.js"></script>
   <script src="thesis.js"></script>
   <script src="reproducibility.js"></script>
   <script src="persistence.js"></script>

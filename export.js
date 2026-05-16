@@ -45,6 +45,12 @@
         launch: run.launch,
         lifetimes: run.lifetimes,
         integration: run.integration,
+        attentionGeneratorConfig: run.algorithmDemo.config,
+        attentionTensorSummary: run.algorithmDemo.attentionSummary,
+        sinkScores: run.algorithmDemo.sinkScores,
+        rankedSinkTokens: run.algorithmDemo.sinkScores.rankedTokens,
+        promotionDecision: run.algorithmDemo.promotionDecision,
+        mergeVerificationResult: run.algorithmDemo.mergeVerification,
         topology: run.topology,
         fabric: run.fabric,
         pooling: run.pooling,
@@ -81,6 +87,14 @@
       const launchJson = JSON.stringify(run.launch, null, 2);
       const lifetimesJson = JSON.stringify(run.lifetimes, null, 2);
       const integrationJson = JSON.stringify(run.integration, null, 2);
+      const algorithmJson = JSON.stringify({
+        attentionGeneratorConfig: run.algorithmDemo.config,
+        attentionTensorSummary: run.algorithmDemo.attentionSummary,
+        sinkScores: run.algorithmDemo.sinkScores,
+        rankedSinkTokens: run.algorithmDemo.sinkScores.rankedTokens,
+        promotionDecision: run.algorithmDemo.promotionDecision,
+        mergeVerificationResult: run.algorithmDemo.mergeVerification,
+      }, null, 2);
       const snapshotJson = JSON.stringify(snapshot, null, 2);
       const csvRows = [
         ["sessionId", "step", "decision", "sramHits", "hbmFallback", "latency"],
@@ -112,6 +126,7 @@
       downloadText("launch-orchestration.json", launchJson, "application/json");
       downloadText("lifetime-analysis.json", lifetimesJson, "application/json");
       downloadText("runtime-integration.json", integrationJson, "application/json");
+      downloadText("core-algorithms.json", algorithmJson, "application/json");
       downloadText("routing-statistics.csv", csvRows, "text/csv");
       downloadText("telemetry-dump.json", telemetryJson, "application/json");
       downloadText("benchmark-report.json", benchmarkJson, "application/json");

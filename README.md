@@ -12,6 +12,18 @@ Open [index.html](./index.html) directly in a browser. The project is dependency
 
 Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
 
+## Core Algorithms Implemented
+
+This repository now includes executable implementations of the core algorithmic primitives behind the simulator:
+
+- cumulative sink score `S(t) = Σ A(l,h,i,t)` over synthetic attention tensors
+- realistic synthetic attention tensor generation with sink-heavy, local, recency-biased, retrieval-biased, and diffuse heads
+- sink-threshold-based SRAM promotion decisions
+- split-path log-sum-exp merge for sink and bulk decode partitions
+- numerical verification of merged attention against full attention
+
+That means the project is not only an architecture shell. It also contains working proof-of-concept implementations of the algorithmic ideas used by the simulator.
+
 ## Patent reference
 
 - Indian patent application number: `202641062302`
@@ -78,6 +90,12 @@ The docs are organized into reading-oriented sections:
 - [Experiments](./docs/experiments/README.md)
 - [Comparisons](./docs/comparisons/README.md)
 - [Exports](./docs/exports/README.md)
+
+Algorithm notes:
+
+- [Core Algorithms](./docs/core-algorithms.md)
+- [Sink Score](./docs/sink-score.md)
+- [Log-Sum-Exp Merge](./docs/log-sum-exp-merge.md)
 
 ## Outputs and exports
 

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Core Algorithms Test</title>
+  <style>
+    body { font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; background: #f7f3ec; color: #191613; margin: 0; padding: 24px; }
+    .card { background: #fffdfa; border: 1px solid #ddd2c4; border-radius: 16px; padding: 16px; margin-bottom: 14px; }
+    .pass { color: #1c7a51; font-weight: 700; }
+    .fail { color: #aa4038; font-weight: 700; }
+    code { background: #f3eee6; padding: 2px 6px; border-radius: 999px; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Core Algorithms Test</h1>
+    <p>No-framework browser test for synthetic attention generation, cumulative sink scoring, and split-path log-sum-exp merge.</p>
+  </div>
+  <div id="results"></div>
+
+  <script src="../js/core/attention-generator.js"></script>
+  <script src="../js/core/sink-score.js"></script>
+  <script src="../js/core/merge.js"></script>
+  <script src="./core-algorithms.test.js"></script>
+</body>
+</html>

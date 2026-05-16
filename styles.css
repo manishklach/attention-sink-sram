@@ -262,6 +262,16 @@ button.secondary {
   color: var(--muted);
 }
 
+.goodText {
+  color: var(--good);
+  font-weight: 700;
+}
+
+.dangerText {
+  color: var(--danger);
+  font-weight: 700;
+}
+
 .badge.sink-heavy,
 .badge.good {
   background: #dff5e8;
