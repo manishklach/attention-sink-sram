@@ -3,23 +3,23 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Attention-Sink SRAM Runtime Orchestration Simulator</title>
+  <title>Attention-Sink SRAM Research and Evaluation Platform</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="page">
     <section class="hero">
-      <div class="eyebrow">Runtime Orchestration Artifact</div>
+      <div class="eyebrow">Trace-Driven Research Platform</div>
       <h1>Attention-Sink-Aware SRAM Placement of Transformer KV State</h1>
       <p class="lede">
-        This browser-native simulator extends slice placement into a live inference-runtime view:
-        multi-tenant shared-prefix reuse, DMA promotion orchestration, decode-time routing, speculative
-        rollback, and eviction-policy behavior are all modeled as deterministic execution flows.
+        This browser-native platform extends the architecture simulator into a deterministic research and
+        evaluation environment: trace replay, parameter sweeps, policy comparison, publication-style figures,
+        workload suites, and exportable experiment artifacts are all modeled around SRAM-aware transformer KV orchestration.
       </p>
       <div class="heroMeta">
         <span>Indian application: <strong>202641062302</strong></span>
         <span>Filed in India</span>
-        <span>Focus: runtime flow + DMA + decode routing + shared reuse</span>
+        <span>Focus: reproducible experimentation + runtime control plane</span>
       </div>
     </section>
 
@@ -56,6 +56,8 @@
             <option value="aggressive-promotion">Aggressive promotion</option>
             <option value="speculative-heavy">Speculative-heavy</option>
             <option value="tenant-fairness-optimized">Tenant-fairness optimized</option>
+            <option value="sink-stability-optimized">Sink-stability optimized</option>
+            <option value="deterministic-residency-optimized">Deterministic-residency optimized</option>
           </select>
         </label>
 
@@ -84,6 +86,12 @@
         </label>
 
         <label>
+          <span>Seed</span>
+          <input id="seed" type="range" min="1" max="9999" value="2302">
+          <strong id="seedValue">2302</strong>
+        </label>
+
+        <label>
           <span>Prompt length</span>
           <input id="promptLength" type="range" min="10" max="48" value="20">
           <strong id="promptLengthValue">20</strong>
@@ -92,6 +100,11 @@
           <span>Decode steps</span>
           <input id="decodeSteps" type="range" min="8" max="40" value="16">
           <strong id="decodeStepsValue">16</strong>
+        </label>
+        <label>
+          <span>Decode concurrency</span>
+          <input id="decodeConcurrency" type="range" min="1" max="8" value="4">
+          <strong id="decodeConcurrencyValue">4</strong>
         </label>
         <label>
           <span>Concurrent sessions</span>
@@ -263,6 +276,15 @@
             <option value="4">4x</option>
           </select>
         </label>
+        <label>
+          <span>Trace replay speed</span>
+          <select id="traceReplaySpeed">
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+            <option value="4">4x</option>
+          </select>
+        </label>
 
         <div class="buttonRow">
           <button id="rerun">Rerun</button>
@@ -287,6 +309,7 @@
           <button id="presetAggressive" class="secondary">Aggressive</button>
           <button id="replayWorkload" class="secondary">Replay Workload</button>
           <button id="generateSnapshot">Generate Research Artifact</button>
+          <button id="generatePaperFigures" class="secondary">Generate Paper Figures</button>
         </div>
 
         <h3>Stress Events</h3>
@@ -514,6 +537,141 @@
           <svg id="telemetrySvg" class="telemetrySvg" viewBox="0 0 1200 280" role="img" aria-label="Telemetry dashboard"></svg>
         </div>
 
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Experiment Framework</h2>
+            <div class="filterRow">
+              <label>
+                <span>Experiment name</span>
+                <input id="experimentName" type="text" value="Baseline experiment">
+              </label>
+              <label>
+                <span>Experiment duration</span>
+                <input id="experimentDuration" type="number" min="4" max="64" value="16">
+              </label>
+            </div>
+            <div class="buttonRow">
+              <button id="queueExperiment" class="secondary">Queue Experiment</button>
+              <button id="runExperiment" class="secondary">Run Experiment</button>
+              <button id="runBatchExperiments" class="secondary">Batch Execute</button>
+              <button id="comparePolicies" class="secondary">Compare Policies</button>
+              <button id="verifyDeterministicReplay" class="secondary">Verify Deterministic Replay</button>
+            </div>
+            <div id="experimentQueue" class="stackList"></div>
+            <div id="experimentResults" class="stackList"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Parameter Sweeps</h2>
+            <div class="filterRow">
+              <label>
+                <span>Primary parameter</span>
+                <select id="sweepParam">
+                  <option value="sramBudget">SRAM size</option>
+                  <option value="dmaBandwidth">DMA bandwidth</option>
+                  <option value="sinkThreshold">Promotion threshold</option>
+                  <option value="draftAcceptRate">Speculative acceptance rate</option>
+                  <option value="executionWindowDuration">Residency window size</option>
+                  <option value="promotedHeads">Promoted heads</option>
+                  <option value="tenantCount">Tenant count</option>
+                  <option value="decodeConcurrency">Decode concurrency</option>
+                </select>
+              </label>
+              <label>
+                <span>Scale</span>
+                <select id="sweepScale">
+                  <option value="linear">Linear</option>
+                  <option value="logarithmic">Logarithmic</option>
+                </select>
+              </label>
+            </div>
+            <div class="filterRow">
+              <label>
+                <span>Start</span>
+                <input id="sweepStart" type="number" value="4">
+              </label>
+              <label>
+                <span>End</span>
+                <input id="sweepEnd" type="number" value="16">
+              </label>
+              <label>
+                <span>Steps</span>
+                <input id="sweepSteps" type="number" min="2" max="12" value="5">
+              </label>
+            </div>
+            <div class="filterRow">
+              <label>
+                <span>Secondary parameter</span>
+                <select id="secondarySweepParam">
+                  <option value="">None</option>
+                  <option value="sramBudget">SRAM size</option>
+                  <option value="dmaBandwidth">DMA bandwidth</option>
+                  <option value="sinkThreshold">Promotion threshold</option>
+                  <option value="draftAcceptRate">Speculative acceptance rate</option>
+                  <option value="executionWindowDuration">Residency window size</option>
+                  <option value="promotedHeads">Promoted heads</option>
+                  <option value="tenantCount">Tenant count</option>
+                  <option value="decodeConcurrency">Decode concurrency</option>
+                </select>
+              </label>
+              <label>
+                <span>Secondary scale</span>
+                <select id="secondarySweepScale">
+                  <option value="linear">Linear</option>
+                  <option value="logarithmic">Logarithmic</option>
+                </select>
+              </label>
+            </div>
+            <div class="filterRow">
+              <label>
+                <span>Secondary start</span>
+                <input id="secondarySweepStart" type="number" value="2">
+              </label>
+              <label>
+                <span>Secondary end</span>
+                <input id="secondarySweepEnd" type="number" value="8">
+              </label>
+              <label>
+                <span>Secondary steps</span>
+                <input id="secondarySweepSteps" type="number" min="2" max="8" value="3">
+              </label>
+            </div>
+            <div class="buttonRow">
+              <button id="runSweep" class="secondary">Run Sweep</button>
+            </div>
+            <svg id="graphSvg" class="telemetrySvg" viewBox="0 0 1200 320" role="img" aria-label="Research graphs"></svg>
+            <div id="sweepSummary" class="stackList"></div>
+          </div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Trace Replay</h2>
+            <textarea id="traceInput" class="traceInput" placeholder='Paste trace JSON here'></textarea>
+            <div class="buttonRow">
+              <button id="loadTrace" class="secondary">Load Trace</button>
+              <button id="replayTrace" class="secondary">Replay Trace</button>
+            </div>
+            <div id="traceStatus" class="stackList"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Notebook Mode</h2>
+            <textarea id="notebookNote" class="traceInput" placeholder="Write observations about this run"></textarea>
+            <div class="buttonRow">
+              <button id="saveNotebookNote" class="secondary">Save Note</button>
+              <button id="exportNotebookMarkdown" class="secondary">Export Markdown</button>
+              <button id="exportNotebookHtml" class="secondary">Export HTML</button>
+            </div>
+            <div id="notebookHistory" class="stackList"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Result Database</h2>
+          <div id="resultHistory" class="stackList"></div>
+        </div>
+
         <div class="panel">
           <h2>Eviction Policy Comparison</h2>
           <p class="subtle">
@@ -534,6 +692,13 @@
   </main>
 
   <script src="runtime-core.js"></script>
+  <script src="reproducibility.js"></script>
+  <script src="persistence.js"></script>
+  <script src="replay.js"></script>
+  <script src="sweeps.js"></script>
+  <script src="graphs.js"></script>
+  <script src="notebook.js"></script>
+  <script src="experiments.js"></script>
   <script src="policies.js"></script>
   <script src="workloads.js"></script>
   <script src="compression.js"></script>

@@ -56,6 +56,24 @@
       fairnessBias: 1.22,
       description: "Balances residency so no single tenant dominates the fast tier.",
     },
+    "sink-stability-optimized": {
+      thresholdBias: -0.04,
+      dmaConcurrencyBias: 1,
+      guaranteeBias: 0.18,
+      promotionBias: 1.08,
+      speculativeBias: 0.88,
+      fairnessBias: 0.96,
+      description: "Keeps persistent sink slices resident longer to stabilize long decode windows.",
+    },
+    "deterministic-residency-optimized": {
+      thresholdBias: 0,
+      dmaConcurrencyBias: 0,
+      guaranteeBias: 0.22,
+      promotionBias: 0.98,
+      speculativeBias: 0.84,
+      fairnessBias: 1.04,
+      description: "Prioritizes residency guarantees and predictable routing over peak aggressiveness.",
+    },
   };
 
   sim.policies = {

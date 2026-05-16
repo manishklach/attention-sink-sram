@@ -21,6 +21,7 @@
       const run = sim.memory.lastRun;
       const snapshot = {
         currentConfig: { ...sim.state },
+        experimentDatabase: sim.persistence.load(),
         policies: {
           executionPolicy: sim.state.executionPolicy,
           partitionPolicy: sim.state.partitionPolicy,
@@ -28,7 +29,10 @@
           compressionMode: sim.state.compressionMode,
           workloadPreset: sim.state.workloadPreset,
         },
+        workloadSuiteCatalog: sim.workloads.suites,
         benchmarkComparison: run.benchmarkComparison,
+        latestSweep: sim.experiments.lastSweep,
+        latestPolicyComparison: sim.experiments.lastComparison,
         residencyTable: run.directory.entries,
         eventTrace: run.timeline,
         orchestrationState: run.orchestrator,

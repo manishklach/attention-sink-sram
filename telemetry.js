@@ -2,7 +2,7 @@
   const sim = window.AttentionSinkSim;
 
   sim.telemetry = {
-    build(snapshot) {
+    build(snapshot, options = {}) {
       const point = {
         sramHitRate: snapshot.tierState.tierHitRates.SRAM,
         hbmHitRate: snapshot.tierState.tierHitRates.HBM,
@@ -17,9 +17,11 @@
         sharingEfficiency: snapshot.sharedMetrics.duplicatePromotionsAvoided / Math.max(1, snapshot.sessions.length),
       };
 
-      sim.memory.telemetryHistory.push(point);
-      if (sim.memory.telemetryHistory.length > 24) {
-        sim.memory.telemetryHistory.shift();
+      if (options.persistHistory !== false) {
+        sim.memory.telemetryHistory.push(point);
+        if (sim.memory.telemetryHistory.length > 24) {
+          sim.memory.telemetryHistory.shift();
+        }
       }
 
       const history = sim.memory.telemetryHistory;

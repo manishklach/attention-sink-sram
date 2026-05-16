@@ -138,7 +138,9 @@ h3 {
 }
 
 .controls input[type="range"],
-.controls select {
+.controls select,
+.controls input[type="number"],
+.controls input[type="text"] {
   width: 100%;
 }
 
@@ -465,6 +467,21 @@ button.secondary {
   padding: 2px 4px 0;
 }
 
+.traceInput {
+  width: 100%;
+  min-height: 180px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  padding: 12px;
+  resize: vertical;
+  font: inherit;
+  background: #fff;
+}
+
+.stackItem strong {
+  display: block;
+}
+
 .routingHeader,
 .directoryHeader,
 .benchmarkHeader {
@@ -688,6 +705,20 @@ button.secondary {
   grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
+.windowsSummary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+
+.tierCard,
+.partitionCard,
+.windowBar,
+.stackItem {
+  box-shadow: 0 6px 16px rgba(25, 22, 19, 0.03);
+}
+
 .architectureSvg {
   width: 100%;
   min-height: 280px;
@@ -750,6 +781,10 @@ button.secondary {
 
   .timelineDetails {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .windowsSummary {
+    grid-template-columns: 1fr;
   }
 }
 

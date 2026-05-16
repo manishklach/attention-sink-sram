@@ -1,6 +1,6 @@
 # Attention-Sink SRAM
 
-Browser-native simulator for `attention-sink-aware SRAM placement of transformer KV cache`, now extended into a deterministic `memory orchestration + execution control plane` simulator for transformer inference.
+Browser-native research and architecture simulator for `SRAM-aware transformer KV orchestration`, with deterministic experiments, trace replay, policy comparison, and exportable patent-support artifacts.
 
 Open [index.html](./index.html) directly in a browser. No build step, package manager, or framework is required.
 
@@ -10,142 +10,98 @@ Open [index.html](./index.html) directly in a browser. No build step, package ma
 - Title: `Methods and Systems for Attention-Sink-Aware SRAM Placement of Key-Value State in Transformer Inference`
 - Filed in: `India`, through the Indian Patent Office patent e-filing system
 
-## What this repository now simulates
+## Positioning
 
-This project illustrates how a future inference runtime could coordinate:
+This repository is no longer just an interactive placement demo. It is designed to illustrate how a future inference runtime could coordinate:
 
-- KV placement and slice promotion
-- DMA scheduling and transfer descriptors
-- SRAM budget partitioning
-- deterministic execution windows
-- decode-time multi-tier routing
+- per-head and per-layer KV promotion
+- deterministic SRAM residency windows
+- decode-time routing across multiple memory tiers
 - shared-prefix reuse across tenants
-- speculative rollback and SRAM reclamation
-- fragmentation, compaction, and relocation traffic
-- runtime policies and stress-event adaptation
-- control-plane telemetry and exportable research artifacts
+- DMA scheduling and promotion traffic
+- speculative rollback and reclamation
+- fragmentation, compaction, and relocation
+- runtime policy comparison
+- trace-driven, reproducible experimentation
 
-## Orchestration control plane
+## Key features
 
-The simulator includes a visible orchestrator that models:
+- `Control-plane orchestrator`
+  Models global scheduling, promotion coordination, SRAM budgeting, decode routing, eviction coordination, and speculative rollback pressure.
 
-- active sessions
-- total SRAM used
-- DMA utilization
-- pending promotions
-- decode queue depth
-- speculative rollback pressure
-- residency pressure
-- promotion churn
-- execution window stability
+- `Trace-driven experimentation`
+  Queue named experiments, run batched configurations, sweep parameters, compare policies, and persist results locally.
 
-This is the main conceptual shift from earlier versions: the repo is no longer only a cache-placement explainer. It is now a deterministic `runtime orchestration prototype`.
+- `Deterministic reproducibility`
+  Seeded runs, fixed scheduling mode, replay verification, snapshot hashing, and experiment checksums.
 
-## Deterministic execution windows
+- `Multi-tier routing`
+  Simulates `SRAM`, `HBM`, `compressed HBM`, `host DRAM`, and `SSD/offload` routing behavior.
 
-Execution windows model periods where selected sink KV regions remain pinned or contractually resident. The simulator surfaces:
+- `Per-head promotion`
+  Whole-token KV movement is not the only option. The simulator can model `per-head` and `per-head + layer-range` slice promotion.
 
-- stable windows
-- unstable windows
-- eviction risk
-- deterministic decode hit rate
-- residency volatility
+- `Shared-prefix reuse`
+  Refcounted shared entries are promoted once and reused across attached sessions while they remain resident.
 
-These windows help explain how an orchestration layer could provide more predictable decode behavior even when the full KV working set does not fit in SRAM.
+- `Publication-style figures`
+  Research graphs, architecture figures, telemetry plots, and SVG exports are built in.
 
-## Multi-tier memory routing
+- `Notebook mode`
+  Save experiment observations and export them as Markdown or HTML summaries.
 
-The memory system now expands beyond `SRAM` and `HBM` to include:
+## Why per-head promotion matters
 
-- `SRAM`
-- `HBM`
-- `compressed HBM`
-- `host DRAM`
-- `SSD/offload`
+The repo explicitly models why selective slice placement is more SRAM-efficient than full-token KV movement.
 
-Each tier has a modeled:
+Example:
 
-- latency
-- bandwidth
-- capacity
-- energy cost
-- promotion eligibility
+- whole-token KV promotion with `8` KV heads stores all heads for a token
+- per-head promotion with `3` promoted heads stores only `3/8` of the head slices
+- this reduces per-token SRAM footprint by about `62.5%`
+- the saved footprint can be reinvested into more sink tokens, longer residency windows, or higher tenant concurrency
 
-The routing panels show tier hit rates, traffic, and fallback escalation.
+This is one of the core architecture ideas the simulator is meant to explain.
 
-## SRAM fragmentation handling
+## Experiment framework
 
-The simulator includes a simple fragmentation model with:
+The UI now supports:
 
-- free and allocated regions
-- shared and pinned blocks
-- failed placements
-- optional compaction
-- relocation DMA traffic
+- queueing experiments
+- running named experiments
+- batched execution
+- seeded replay
+- deterministic replay verification
+- parameter sweeps
+- side-by-side policy comparison
+- local result persistence
 
-This helps illustrate why residency management is also an address-space and fragmentation problem, not just a ranking problem.
+Each experiment captures:
 
-## Compressed KV handling
+- workload
+- runtime policy
+- memory policy
+- eviction policy
+- promotion policy
+- seed
+- duration
+- parameter overrides
 
-The runtime can model:
+## Reproducibility
 
-- uncompressed SRAM
-- quantized HBM
-- compressed cold storage
+Reproducibility mode includes:
 
-The compression panel shows:
+- seeded RNG
+- deterministic event ordering
+- snapshot hashing
+- experiment checksums
+- replay consistency verification
 
-- compression ratio
-- decompression latency
-- bandwidth savings
-- effective capacity gain
+This is a `deterministic simulator`, so repeated runs with the same configuration should produce the same trace and checksum unless the config changes.
 
-## Runtime policy engine
+## Workload replay and suites
 
-Policies available in the UI:
-
-- `latency optimized`
-- `bandwidth optimized`
-- `SRAM conservative`
-- `aggressive promotion`
-- `speculative-heavy`
-- `tenant-fairness optimized`
-
-These policies affect runtime behavior including promotion thresholds, DMA concurrency, speculative aggressiveness, and benchmark outcomes.
-
-## Stress-event simulation
-
-Buttons in the control panel let you inject runtime pressure:
-
-- SRAM exhaustion
-- DMA congestion
-- speculative collapse
-- eviction storm
-- tenant burst
-- prefix invalidation
-- bandwidth saturation
-
-The orchestrator and telemetry surfaces then reflect the resulting pressure, churn, or degradation.
-
-## Telemetry dashboards
-
-The repository includes systems-style telemetry surfaces for:
-
-- SRAM hit rate
-- HBM hit rate
-- multi-tier routing mix
-- DMA queue occupancy
-- promotion churn
-- residency half-life
-- speculative rollback rate
-- deterministic decode percentage
-- effective bandwidth saved
-- estimated latency saved
-- tenant sharing efficiency
-
-## Workload presets
-
-Preset workloads help replay different serving conditions:
+Built-in workload presets include:
 
 - chatbot assistant
 - long-context reasoning
@@ -155,94 +111,164 @@ Preset workloads help replay different serving conditions:
 - speculative decode stress
 - multi-tenant enterprise serving
 
-## Architecture screenshots
+Research scenario suites described in the docs include:
 
-Suggested captures for the repo page or a write-up:
+- long-context serving
+- enterprise multi-tenant
+- RAG-heavy inference
+- agentic orchestration
+- high speculative decode
+- SRAM constrained edge inference
+- extreme tenant burst
+- prefix-sharing hyperscale serving
 
-- orchestrator state panel
-- deterministic execution windows panel
-- runtime architecture view
-- microarchitecture view
+## Parameter sweeps
 
-## Telemetry screenshots
+Sweepable parameters include:
 
-Suggested captures:
+- SRAM size
+- DMA bandwidth
+- promotion threshold
+- speculative acceptance rate
+- residency window size
+- promoted heads
+- tenant count
+- decode concurrency
 
-- telemetry dashboard graph
-- fragmentation map
-- multi-tier memory panel
-- DMA queue with active and completed descriptors
+The sweep engine supports:
 
-## Orchestration screenshots
+- linear sweeps
+- logarithmic sweeps
+- optional two-dimensional sweeps
 
-Suggested captures:
+## Policy comparison
 
-- execution timeline with an active DMA promotion event
-- shared-prefix panel with refcounted reuse
-- partition panel under a tenant-priority policy
-- speculative decode panel during rollback-heavy stress
+The simulator can compare multiple runtime policies side by side, including:
 
-## Export examples
+- latency optimized
+- bandwidth optimized
+- SRAM conservative
+- aggressive promotion
+- speculative-heavy
+- tenant-fairness optimized
+- sink-stability optimized
+- deterministic-residency optimized
+
+Comparisons include:
+
+- SRAM hit rate
+- latency proxy
+- DMA traffic
+- fragmentation
+- promotion churn
+- rollback pressure
+- fairness and reuse proxies
+
+## Publication-quality figures
+
+Use `Generate Paper Figures` to export:
+
+- research graphs
+- telemetry figures
+- architecture diagrams
+- microarchitecture diagrams
 
 Use `Generate Research Artifact` to export:
 
-- `research-artifact.json`
-- `orchestration-trace.json`
-- `dma-trace.json`
-- `tier-residency-snapshot.json`
-- `fragmentation-map.json`
-- `routing-statistics.csv`
-- `telemetry-dump.json`
-- `benchmark-report.json`
-- `architecture-view.svg`
-- `microarchitecture-view.svg`
+- experiment config
+- benchmark summaries
+- residency tables
+- orchestration trace
+- DMA trace
+- fragmentation map
+- routing CSV
+- telemetry dump
+- local result history
+
+## Notebook mode
+
+Notebook mode lets you:
+
+- annotate runs
+- save research notes locally
+- export Markdown summaries
+- export HTML summaries
+
+## Screenshot placeholders
+
+Suggested screenshots for a paper, memo, or repo page:
+
+- orchestrator state
+- execution timeline
+- multi-tier memory panel
+- telemetry dashboard
+- experiment framework
+- parameter sweep graph
+- residency directory
+- fragmentation map
 
 ## Repository structure
 
 - `index.html` - browser-native UI shell
-- `styles.css` - layout, panels, heatmaps, dashboards, and diagrams
-- `runtime-core.js` - shared state, model geometry, sessions, head profiles
-- `orchestrator.js` - centralized control-plane state and partitioning
-- `tiers.js` - multi-tier memory model
-- `compression.js` - compressed KV behavior
-- `fragmentation.js` - SRAM fragmentation and compaction
+- `styles.css` - layout, panels, dashboards, and SVG styling
+- `runtime-core.js` - shared state, model geometry, sessions, and head profiles
+- `orchestrator.js` - control-plane scheduling and residency pressure
+- `experiments.js` - experiment queue and batched execution
+- `sweeps.js` - parameter sweep generation
+- `reproducibility.js` - seeded replay, hashing, and deterministic verification
+- `replay.js` - trace validation and replay conversion
+- `persistence.js` - browser-local result storage
+- `notebook.js` - local notes and report export
+- `graphs.js` - reusable research graph rendering and export
+- `metrics.js` - research metrics and definitions
+- `policies.js` - runtime policy profiles
+- `workloads.js` - workload presets and scenario suites
 - `telemetry.js` - rolling metrics and event counters
-- `metrics.js` - high-level metric summaries
-- `policies.js` - runtime policy definitions
-- `workloads.js` - replayable workload presets
-- `residency.js` - SRAM directory and shared-prefix metrics
+- `compression.js` - compressed KV behavior
+- `tiers.js` - multi-tier routing model
+- `fragmentation.js` - fragmentation, compaction, and relocation
+- `residency.js` - SRAM residency directory and shared-prefix reuse
 - `dma.js` - deterministic DMA scheduling
 - `routing.js` - decode routing decisions
-- `eviction.js` - eviction-policy scoring and comparison
-- `speculative.js` - speculative rollback behavior
+- `eviction.js` - eviction policy comparison
+- `speculative.js` - speculative decode and rollback behavior
 - `timeline.js` - event sequencing and playback
-- `benchmark.js` - runtime comparisons
-- `export.js` - research artifact generation
-- `app.js` - UI binding and render orchestration
+- `benchmark.js` - benchmark comparison surfaces
+- `export.js` - research artifact export
+- `app.js` - UI binding and rendering orchestration
 
 ## Documentation
 
-Core docs:
+Architecture and methodology:
 
 - [Architecture](./docs/architecture.md)
 - [Benchmark methodology](./docs/benchmark-methodology.md)
-- [Claim-support map](./docs/claim-map.md)
+- [Evaluation methodology](./docs/evaluation-methodology.md)
+- [Metrics](./docs/metrics.md)
 
-Runtime docs:
+Runtime and control-plane:
 
 - [Runtime orchestration](./docs/runtime-orchestration.md)
-- [DMA engine](./docs/dma-engine.md)
-- [Shared prefix reuse](./docs/shared-prefix-reuse.md)
-- [Speculative decode](./docs/speculative-decode.md)
-
-Control-plane docs:
-
 - [Control plane](./docs/control-plane.md)
+- [DMA engine](./docs/dma-engine.md)
 - [Deterministic execution](./docs/deterministic-execution.md)
 - [Multi-tier memory](./docs/multi-tier-memory.md)
 - [Fragmentation](./docs/fragmentation.md)
 - [Runtime policies](./docs/runtime-policies.md)
 - [Telemetry](./docs/telemetry.md)
+
+Workloads and experiments:
+
+- [Experiments](./docs/experiments.md)
+- [Reproducibility](./docs/reproducibility.md)
+- [Workloads](./docs/workloads.md)
+- [Policy comparison](./docs/policy-comparison.md)
+
+Patent-support mapping:
+
+- [Claim-support map](./docs/claim-map.md)
+- [Shared prefix reuse](./docs/shared-prefix-reuse.md)
+- [Speculative decode](./docs/speculative-decode.md)
 
 ## Disclaimer
 
@@ -250,12 +276,17 @@ This repository is a `deterministic educational systems simulator`, not a produc
 
 It is intended to:
 
-- illustrate orchestration concepts
-- model residency and routing tradeoffs
-- demonstrate control-plane behavior
-- support explanation of possible patent-relevant architecture themes
+- model orchestration concepts
+- illustrate tradeoffs between memory tiers
+- support explanation of architectural and patent-adjacent ideas
+- provide a reproducible experimentation surface for discussion
 
-It does `not` claim cycle-accurate timing, production-quality model fidelity, legal conclusions, or patentability guarantees.
+It does `not` claim:
+
+- cycle-accurate hardware equivalence
+- production model fidelity
+- measured production throughput
+- legal conclusions or patentability guarantees
 
 ## Maintainer
 

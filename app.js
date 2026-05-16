@@ -2,6 +2,18 @@
   const sim = window.AttentionSinkSim;
   const { formatNumber, bytesToHuman } = sim.utils;
 
+  function getSelectText(id) {
+    const el = document.getElementById(id);
+    return el && el.selectedOptions.length ? el.selectedOptions[0].textContent : String(sim.state[id] || "");
+  }
+
+  function activeTimeline() {
+    if (sim.memory.overrideTimeline) {
+      return sim.memory.overrideTimeline;
+    }
+    return sim.memory.lastRun ? sim.memory.lastRun.timeline : [];
+  }
+
   function syncControlValues() {
     sim.ensureLayerRange();
     document.getElementById("promotedHeads").max = String(sim.state.kvHeads);
@@ -12,6 +24,9 @@
     sim.rangeIds.forEach((id) => {
       const input = document.getElementById(id);
       const value = document.getElementById(`${id}Value`);
+      if (!input || !value) {
+        return;
+      }
       input.value = sim.state[id];
       value.textContent = String(sim.state[id]);
       if (["layerBoostMultiplier", "sinkThreshold", "evictionThreshold", "emaAlpha", "draftAcceptRate"].includes(id)) {
@@ -118,10 +133,8 @@
 
     timeline.forEach((event, index) => {
       const card = document.createElement("div");
-      const isActive = index === cursor;
-      const left = (event.timestamp / maxTime) * 100;
-      card.className = `timelineEvent ${isActive ? "active" : ""}`;
-      card.style.left = `${left}%`;
+      card.className = `timelineEvent ${index === cursor ? "active" : ""}`;
+      card.style.left = `${(event.timestamp / maxTime) * 100}%`;
       card.innerHTML = `
         <div class="timelineStage">${event.stage}</div>
         <div class="timelineMeta">${event.sessionId} | t=${event.timestamp}</div>
@@ -151,18 +164,15 @@
   }
 
   function renderDma(dmaState) {
-    const timeline = sim.memory.lastRun ? sim.memory.lastRun.timeline : [];
+    const timeline = activeTimeline();
     const cursorEvent = timeline[sim.memory.timelineCursor];
     const time = cursorEvent ? cursorEvent.timestamp : 0;
     const active = dmaState.descriptors.filter((item) => item.startTime <= time && item.completionTime > time);
-    const queued = dmaState.descriptors.filter(
-      (item) => item.enqueueTime > time || (item.enqueueTime <= time && item.startTime > time)
-    );
+    const queued = dmaState.descriptors.filter((item) => item.enqueueTime > time || (item.enqueueTime <= time && item.startTime > time));
     const completed = dmaState.descriptors.filter((item) => item.completionTime <= time).slice(-8).reverse();
 
     document.getElementById("dmaUtilizationLabel").textContent = `${formatNumber(dmaState.utilization, 1)}%`;
     document.getElementById("dmaUtilizationBar").style.width = `${Math.min(100, dmaState.utilization)}%`;
-
     [
       ["dmaActive", active],
       ["dmaQueued", queued.slice(0, 8)],
@@ -170,18 +180,14 @@
     ].forEach(([id, items]) => {
       const container = document.getElementById(id);
       container.innerHTML = items.length
-        ? items
-            .map(
-              (item) => `
+        ? items.map((item) => `
           <div class="stackItem">
             <strong>${item.id}</strong>
             <span>${item.sessionId} | tokens ${item.tokenRange}</span>
             <span>${bytesToHuman(item.bytes)} | ${item.source} → ${item.destination}</span>
             <span>t${item.enqueueTime} to t${item.completionTime}</span>
           </div>
-        `
-            )
-            .join("")
+        `).join("")
         : `<div class="stackEmpty">No items</div>`;
     });
   }
@@ -200,9 +206,7 @@
         <span>Latency</span>
         <span>Decision</span>
       </div>
-      ${rows
-        .map(
-          (row) => `
+      ${rows.map((row) => `
         <div class="routingRow ${row.routingDecision.toLowerCase()}">
           <span>${row.sessionId}</span>
           <span>${row.step}</span>
@@ -213,16 +217,13 @@
           <span>${formatNumber(row.estimatedLatency, 1)}</span>
           <span>${row.routingDecision}</span>
         </div>
-      `
-        )
-        .join("")}
+      `).join("")}
       <div class="routingFooter">Routing mix: SRAM ${formatNumber(tierState.tierHitRates.SRAM, 1)}% | HBM ${formatNumber(tierState.tierHitRates.HBM, 1)}% | Compressed ${formatNumber(tierState.tierHitRates["compressed-HBM"], 1)}%</div>
     `;
   }
 
   function renderSharedPrefix(sharedMetrics, sessions) {
-    const container = document.getElementById("sharedPrefixPanel");
-    container.innerHTML = `
+    document.getElementById("sharedPrefixPanel").innerHTML = `
       <div class="sharedStat"><span>Attached sessions</span><strong>${sessions.filter((session) => session.attachedSharedPrefix).length}</strong></div>
       <div class="sharedStat"><span>Refcount</span><strong>${sharedMetrics.refcount}</strong></div>
       <div class="sharedStat"><span>SRAM bytes saved</span><strong>${bytesToHuman(sharedMetrics.bytesSaved)}</strong></div>
@@ -246,49 +247,29 @@
         <span>Tier</span>
         <span>Flags</span>
       </div>
-      ${entries
-        .map((entry) => {
-          const flags = [
-            entry.shared ? "shared" : "",
-            entry.pinned ? "pinned" : "",
-            entry.evicting ? "evicting" : "",
-            entry.stale ? "stale" : "",
-            entry.tier === "SRAM" ? "promoted" : "",
-          ]
-            .filter(Boolean)
-            .join(", ");
-          const classNames = [
-            "directoryRow",
-            entry.shared ? "shared" : "",
-            entry.pinned ? "pinned" : "",
-            entry.evicting ? "evicting" : "",
-            entry.stale ? "stale" : "",
-            entry.tier === "SRAM" ? "promoted" : "",
-          ]
-            .filter(Boolean)
-            .join(" ");
-          return `
-            <div class="${classNames}">
-              <span>${entry.sessionId}</span>
-              <span>${entry.tokenRange}</span>
-              <span>${entry.headRange}</span>
-              <span>${entry.layerRange}</span>
-              <span>${entry.sinkScore.toFixed(2)}</span>
-              <span>${entry.age}</span>
-              <span>${entry.refcount}</span>
-              <span>${entry.tier}</span>
-              <span>${flags || "none"}</span>
-            </div>
-          `;
-        })
-        .join("")}
+      ${entries.map((entry) => {
+        const flags = [entry.shared ? "shared" : "", entry.pinned ? "pinned" : "", entry.evicting ? "evicting" : "", entry.stale ? "stale" : "", entry.tier === "SRAM" ? "promoted" : ""].filter(Boolean).join(", ");
+        const classNames = ["directoryRow", entry.shared ? "shared" : "", entry.pinned ? "pinned" : "", entry.evicting ? "evicting" : "", entry.stale ? "stale" : "", entry.tier === "SRAM" ? "promoted" : ""].filter(Boolean).join(" ");
+        return `
+          <div class="${classNames}">
+            <span>${entry.sessionId}</span>
+            <span>${entry.tokenRange}</span>
+            <span>${entry.headRange}</span>
+            <span>${entry.layerRange}</span>
+            <span>${entry.sinkScore.toFixed(2)}</span>
+            <span>${entry.age}</span>
+            <span>${entry.refcount}</span>
+            <span>${entry.tier}</span>
+            <span>${flags || "none"}</span>
+          </div>
+        `;
+      }).join("")}
     `;
   }
 
   function renderSpeculative(trace) {
-    const container = document.getElementById("speculativePanel");
     const preview = trace.rows.slice(0, 10);
-    container.innerHTML = `
+    document.getElementById("speculativePanel").innerHTML = `
       <div class="specSummary">
         <div class="sharedStat"><span>Rollback frequency</span><strong>${trace.rollbackCount}</strong></div>
         <div class="sharedStat"><span>Wasted DMA bytes</span><strong>${bytesToHuman(trace.wastedBytes)}</strong></div>
@@ -296,9 +277,7 @@
         <div class="sharedStat"><span>Stable sink retention</span><strong>${bytesToHuman(trace.stableRetention)}</strong></div>
       </div>
       <div class="specList">
-        ${preview
-          .map(
-            (row) => `
+        ${preview.map((row) => `
           <div class="specRow ${row.rejected > 0 ? "rollback" : "stable"}">
             <strong>${row.sessionId} step ${row.step}</strong>
             <span>Draft ${row.draftTokens}</span>
@@ -306,16 +285,13 @@
             <span>Rejected ${row.rejected}</span>
             <span>Reclaimed ${bytesToHuman(row.reclaimedBytes)}</span>
           </div>
-        `
-          )
-          .join("")}
+        `).join("")}
       </div>
     `;
   }
 
   function renderOrchestratorState(orchestrator) {
-    const container = document.getElementById("orchestratorState");
-    container.innerHTML = `
+    document.getElementById("orchestratorState").innerHTML = `
       <div class="sharedStat"><span>Active sessions</span><strong>${orchestrator.activeSessions}</strong></div>
       <div class="sharedStat"><span>Total SRAM used</span><strong>${bytesToHuman(orchestrator.totalSramUsed)}</strong></div>
       <div class="sharedStat"><span>DMA utilization</span><strong>${formatNumber(orchestrator.dmaUtilization, 1)}%</strong></div>
@@ -330,17 +306,14 @@
   }
 
   function renderExecutionWindows(orchestrator) {
-    const container = document.getElementById("executionWindows");
-    container.innerHTML = `
+    document.getElementById("executionWindows").innerHTML = `
       <div class="windowsSummary">
         <div class="sharedStat"><span>Deterministic decode hit rate</span><strong>${formatNumber(orchestrator.deterministicDecodeHitRate, 1)}%</strong></div>
         <div class="sharedStat"><span>Residency volatility</span><strong>${formatNumber(orchestrator.residencyVolatility, 1)}%</strong></div>
         <div class="sharedStat"><span>Stable windows</span><strong>${formatNumber(orchestrator.executionWindowStability * 100, 1)}%</strong></div>
       </div>
       <div class="windowBars">
-        ${orchestrator.windows
-          .map(
-            (window) => `
+        ${orchestrator.windows.map((window) => `
           <div class="windowBar ${window.stable ? "stable" : "unstable"}">
             <strong>${window.id}</strong>
             <span>${window.start}-${window.end}</span>
@@ -348,42 +321,34 @@
             <span>Pinned ${window.pinnedEntries}</span>
             <span>Risk ${window.risk}</span>
           </div>
-        `
-          )
-          .join("")}
+        `).join("")}
       </div>
     `;
   }
 
   function renderPartitions(partitions) {
-    const container = document.getElementById("partitionPanel");
-    container.innerHTML = `
+    document.getElementById("partitionPanel").innerHTML = `
       <div class="sharedStat"><span>Total budget</span><strong>${bytesToHuman(partitions.totalBudgetBytes)}</strong></div>
       <div class="sharedStat"><span>Shared reserved pool</span><strong>${bytesToHuman(partitions.sharedReserved)}</strong></div>
       <div class="partitionBars">
-        ${partitions.allocations
-          .map((allocation) => {
-            const utilization = allocation.allocatedBytes > 0 ? (allocation.usedBytes / allocation.allocatedBytes) * 100 : 0;
-            return `
-              <div class="partitionCard ${allocation.oversubscribed ? "oversubscribed" : ""} ${allocation.starvationRisk ? "starved" : ""}">
-                <strong>${allocation.sessionId}</strong>
-                <span>Allocated ${bytesToHuman(allocation.allocatedBytes)}</span>
-                <span>Used ${bytesToHuman(allocation.usedBytes)}</span>
-                <span>Wasted ${bytesToHuman(allocation.wastedBytes)}</span>
-                <span>Utilization ${formatNumber(utilization, 1)}%</span>
-              </div>
-            `;
-          })
-          .join("")}
+        ${partitions.allocations.map((allocation) => {
+          const utilization = allocation.allocatedBytes > 0 ? (allocation.usedBytes / allocation.allocatedBytes) * 100 : 0;
+          return `
+            <div class="partitionCard ${allocation.oversubscribed ? "oversubscribed" : ""} ${allocation.starvationRisk ? "starved" : ""}">
+              <strong>${allocation.sessionId}</strong>
+              <span>Allocated ${bytesToHuman(allocation.allocatedBytes)}</span>
+              <span>Used ${bytesToHuman(allocation.usedBytes)}</span>
+              <span>Wasted ${bytesToHuman(allocation.wastedBytes)}</span>
+              <span>Utilization ${formatNumber(utilization, 1)}%</span>
+            </div>
+          `;
+        }).join("")}
       </div>
     `;
   }
 
   function renderTierPanel(tierState) {
-    const container = document.getElementById("tierPanel");
-    container.innerHTML = tierState.tiers
-      .map(
-        (tier) => `
+    document.getElementById("tierPanel").innerHTML = tierState.tiers.map((tier) => `
       <div class="tierCard">
         <strong>${tier.id}</strong>
         <span>Latency ${formatNumber(tier.latency, 1)}</span>
@@ -393,14 +358,11 @@
         <span>Hit rate ${formatNumber(tierState.tierHitRates[tier.id] || 0, 1)}%</span>
         <span>Traffic ${bytesToHuman(tierState.traffic[tier.id] || 0)}</span>
       </div>
-    `
-      )
-      .join("");
+    `).join("");
   }
 
   function renderCompressionPanel(compressionState) {
-    const container = document.getElementById("compressionPanel");
-    container.innerHTML = `
+    document.getElementById("compressionPanel").innerHTML = `
       <div class="sharedStat"><span>Compression mode</span><strong>${compressionState.mode}</strong></div>
       <div class="sharedStat"><span>Compression ratio</span><strong>${formatNumber(compressionState.ratio, 2)}x raw</strong></div>
       <div class="sharedStat"><span>Effective capacity gain</span><strong>${formatNumber(compressionState.effectiveCapacityGain, 2)}x</strong></div>
@@ -418,64 +380,41 @@
       <div class="sharedStat"><span>Relocation traffic</span><strong>${bytesToHuman(fragmentationState.relocationTraffic)}</strong></div>
       <div class="sharedStat"><span>Failed placements</span><strong>${fragmentationState.failedPlacements}</strong></div>
     `;
-    document.getElementById("fragmentationMap").innerHTML = fragmentationState.blocks
-      .map(
-        (block) => `
+    document.getElementById("fragmentationMap").innerHTML = fragmentationState.blocks.map((block) => `
       <div class="fragBlock ${block.status}">
         <span>${block.index}</span>
         <small>${block.sessionId || "-"}</small>
       </div>
-    `
-      )
-      .join("");
+    `).join("");
   }
 
   function renderTelemetry(telemetry, metricsSummary) {
-    const cards = document.getElementById("telemetryCards");
-    cards.innerHTML = `
-      <div class="sharedStat"><span>SRAM hit rate</span><strong>${formatNumber(telemetry.current.sramHitRate, 1)}%</strong></div>
-      <div class="sharedStat"><span>HBM hit rate</span><strong>${formatNumber(telemetry.current.hbmHitRate, 1)}%</strong></div>
-      <div class="sharedStat"><span>DMA queue occupancy</span><strong>${formatNumber(telemetry.current.dmaQueueOccupancy, 1)}</strong></div>
-      <div class="sharedStat"><span>Rollback rate</span><strong>${formatNumber(telemetry.current.rollbackRate * 100, 1)}%</strong></div>
-      <div class="sharedStat"><span>Deterministic decode</span><strong>${formatNumber(metricsSummary.deterministicDecodeHitRate, 1)}%</strong></div>
-      <div class="sharedStat"><span>Bandwidth saved</span><strong>${bytesToHuman(metricsSummary.effectiveBandwidthSaved)}</strong></div>
+    document.getElementById("telemetryCards").innerHTML = `
+      <div class="sharedStat" title="${sim.metrics.definitions.executionStability}"><span>Execution stability</span><strong>${formatNumber(metricsSummary.executionStability, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.residencyHalfLife}"><span>Residency half-life</span><strong>${formatNumber(metricsSummary.residencyHalfLife, 1)}</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.effectiveSramAmplification}"><span>SRAM amplification</span><strong>${formatNumber(metricsSummary.effectiveSramAmplification, 2)}x</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.promotionEntropy}"><span>Promotion entropy</span><strong>${formatNumber(metricsSummary.promotionEntropy, 2)}</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.routingDeterminism}"><span>Routing determinism</span><strong>${formatNumber(metricsSummary.routingDeterminism, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.dmaEfficiency}"><span>DMA efficiency</span><strong>${formatNumber(metricsSummary.dmaEfficiency, 6)}</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.speculativeWasteFactor}"><span>Speculative waste</span><strong>${formatNumber(metricsSummary.speculativeWasteFactor * 100, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.residencyVolatility}"><span>Residency volatility</span><strong>${formatNumber(metricsSummary.residencyVolatility, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.decodeStallProbability}"><span>Decode stall probability</span><strong>${formatNumber(metricsSummary.decodeStallProbability, 1)}%</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.multiTenantReuseEfficiency}"><span>Reuse efficiency</span><strong>${formatNumber(metricsSummary.multiTenantReuseEfficiency, 2)}</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.compactionOverhead}"><span>Compaction overhead</span><strong>${formatNumber(metricsSummary.compactionOverhead, 1)}</strong></div>
+      <div class="sharedStat" title="${sim.metrics.definitions.effectiveBandwidthSaved}"><span>Bandwidth saved</span><strong>${bytesToHuman(metricsSummary.effectiveBandwidthSaved)}</strong></div>
     `;
-
-    const svg = document.getElementById("telemetrySvg");
     const history = telemetry.history;
-    const width = 1100;
-    const height = 220;
-    const step = history.length > 1 ? width / (history.length - 1) : width;
-    const paths = [
-      { key: "sramHitRate", color: "#1c7a51", scale: 2 },
-      { key: "dmaQueueOccupancy", color: "#0e5f66", scale: 18 },
-      { key: "rollbackRate", color: "#aa4038", scale: 160 },
-      { key: "deterministicDecode", color: "#8b4a2e", scale: 2 },
-    ];
-    svg.innerHTML = `
-      <rect x="24" y="16" width="1120" height="220" rx="20" fill="#fffdfa" stroke="#ddd2c4"></rect>
-      ${paths
-        .map((line) => {
-          const d = history
-            .map((point, index) => {
-              const x = 40 + index * step;
-              const value = point[line.key] * line.scale;
-              const y = 220 - Math.min(180, value);
-              return `${index === 0 ? "M" : "L"} ${x} ${y}`;
-            })
-            .join(" ");
-          return `<path d="${d}" fill="none" stroke="${line.color}" stroke-width="3"></path>`;
-        })
-        .join("")}
-      ${paths
-        .map((line, index) => `<text x="${52 + index * 190}" y="248" fill="${line.color}" font-size="14">${line.key}</text>`)
-        .join("")}
-    `;
+    sim.graphs.renderSeries("telemetrySvg", "Rolling Telemetry", [
+      { label: "SRAM hit rate", points: history.map((point, index) => ({ x: index, value: point.sramHitRate })) },
+      { label: "DMA queue occupancy", points: history.map((point, index) => ({ x: index, value: point.dmaQueueOccupancy * 10 })) },
+      { label: "Rollback rate", points: history.map((point, index) => ({ x: index, value: point.rollbackRate * 100 })) },
+      { label: "Deterministic decode", points: history.map((point, index) => ({ x: index, value: point.deterministicDecode })) },
+    ], "Rolling metrics");
   }
 
   function renderArchitecture(architectureState) {
     const svg = document.getElementById("architectureSvg");
-    const activeEvent = sim.memory.lastRun ? sim.memory.lastRun.timeline[sim.memory.timelineCursor] : null;
+    const activeEvent = activeTimeline()[sim.memory.timelineCursor];
     const activeStage = activeEvent ? activeEvent.stage : "";
     const blocks = [
       { key: "tokenizer", label: "Tokenizer", x: 24, y: 44 },
@@ -515,38 +454,30 @@
       ["directory", "router"],
       ["orchestrator", "directory"],
     ];
-
     svg.innerHTML = `
       <defs>
         <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
           <path d="M0,0 L10,3 L0,6 z" fill="#0e5f66"></path>
         </marker>
       </defs>
-      ${connections
-        .map(([fromKey, toKey]) => {
-          const from = blocks.find((block) => block.key === fromKey);
-          const to = blocks.find((block) => block.key === toKey);
-          return `<line x1="${from.x + 118}" y1="${from.y + 32}" x2="${to.x}" y2="${to.y + 32}" class="archLine" marker-end="url(#arrow)"></line>`;
-        })
-        .join("")}
-      ${blocks
-        .map((block) => {
-          const active = block.key === highlightedKey ? "active" : "";
-          return `
-            <g class="archBlock ${active}">
-              <rect x="${block.x}" y="${block.y}" width="132" height="64" rx="18"></rect>
-              <text x="${block.x + 66}" y="${block.y + 28}" text-anchor="middle">${block.label}</text>
-              <text x="${block.x + 66}" y="${block.y + 48}" text-anchor="middle" class="archSub">${architectureState[block.key]}</text>
-            </g>
-          `;
-        })
-        .join("")}
+      ${connections.map(([fromKey, toKey]) => {
+        const from = blocks.find((block) => block.key === fromKey);
+        const to = blocks.find((block) => block.key === toKey);
+        return `<line x1="${from.x + 118}" y1="${from.y + 32}" x2="${to.x}" y2="${to.y + 32}" class="archLine" marker-end="url(#arrow)"></line>`;
+      }).join("")}
+      ${blocks.map((block) => `
+        <g class="archBlock ${block.key === highlightedKey ? "active" : ""}">
+          <rect x="${block.x}" y="${block.y}" width="132" height="64" rx="18"></rect>
+          <text x="${block.x + 66}" y="${block.y + 28}" text-anchor="middle">${block.label}</text>
+          <text x="${block.x + 66}" y="${block.y + 48}" text-anchor="middle" class="archSub">${architectureState[block.key]}</text>
+        </g>
+      `).join("")}
     `;
   }
 
   function renderMicroarchitecture(snapshot) {
     const svg = document.getElementById("microarchitectureSvg");
-    const activeEvent = snapshot.timeline[sim.memory.timelineCursor];
+    const activeEvent = activeTimeline()[sim.memory.timelineCursor];
     const activeLabel = activeEvent ? activeEvent.stage : "idle";
     const banks = Array.from({ length: 6 }, (_, index) => ({
       id: `Bank ${index + 1}`,
@@ -561,18 +492,14 @@
       <g class="archBlock"><rect x="770" y="48" width="136" height="64" rx="18"></rect><text x="838" y="78" text-anchor="middle">HBM controller</text><text x="838" y="98" text-anchor="middle" class="archSub">${formatNumber(snapshot.tierState.tierHitRates.HBM, 1)}% HBM</text></g>
       <g class="archBlock"><rect x="956" y="48" width="136" height="64" rx="18"></rect><text x="1024" y="78" text-anchor="middle">Compression engine</text><text x="1024" y="98" text-anchor="middle" class="archSub">${snapshot.compression.decompressionEvents} events</text></g>
       <g class="archBlock"><rect x="1116" y="48" width="108" height="64" rx="18"></rect><text x="1170" y="78" text-anchor="middle">Directory</text><text x="1170" y="98" text-anchor="middle" class="archSub">${snapshot.directory.entries.length} entries</text></g>
-      ${banks
-        .map(
-          (bank, index) => `
+      ${banks.map((bank, index) => `
         <g>
           <rect x="${56 + index * 188}" y="182" width="132" height="54" rx="16" fill="#f7efe3" stroke="#ddd2c4"></rect>
           <rect x="${64 + index * 188}" y="212" width="${Math.min(116, bank.pressure)}" height="12" rx="6" fill="${bank.pressure > 70 ? "#aa4038" : bank.pressure > 45 ? "#b56b36" : "#1c7a51"}"></rect>
           <text x="${122 + index * 188}" y="202" text-anchor="middle" font-size="13" fill="#191613">${bank.id}</text>
           <text x="${122 + index * 188}" y="248" text-anchor="middle" font-size="12" fill="#615a54">${formatNumber(bank.pressure, 1)}% pressure</text>
         </g>
-      `
-        )
-        .join("")}
+      `).join("")}
       <line x1="180" y1="80" x2="220" y2="80" class="archLine" marker-end="url(#arrow)"></line>
       <line x1="356" y1="80" x2="400" y2="80" class="archLine" marker-end="url(#arrow)"></line>
       <line x1="536" y1="80" x2="582" y2="80" class="archLine" marker-end="url(#arrow)"></line>
@@ -585,36 +512,10 @@
   function renderBenchmarkTable(rows, containerId) {
     const container = document.getElementById(containerId);
     const header = containerId === "evictionComparison"
-      ? `
-        <div class="benchmarkHeader benchmarkHeaderTight">
-          <span>Policy</span>
-          <span>Promotion churn</span>
-          <span>Thrash rate</span>
-          <span>Latency</span>
-          <span>DMA traffic</span>
-          <span>Cache stability</span>
-          <span>Notes</span>
-        </div>
-      `
-      : `
-        <div class="benchmarkHeader">
-          <span>Mode</span>
-          <span>Promoted tokens</span>
-          <span>Promoted heads</span>
-          <span>Promoted layers</span>
-          <span>SRAM bytes used</span>
-          <span>SRAM budget %</span>
-          <span>HBM reads avoided</span>
-          <span>Latency cost</span>
-          <span>Speedup</span>
-          <span>Notes</span>
-        </div>
-      `;
-
+      ? `<div class="benchmarkHeader benchmarkHeaderTight"><span>Policy</span><span>Promotion churn</span><span>Thrash rate</span><span>Latency</span><span>DMA traffic</span><span>Cache stability</span><span>Notes</span></div>`
+      : `<div class="benchmarkHeader"><span>Mode</span><span>Promoted tokens</span><span>Promoted heads</span><span>Promoted layers</span><span>SRAM bytes used</span><span>SRAM budget %</span><span>HBM reads avoided</span><span>Latency cost</span><span>Speedup</span><span>Notes</span></div>`;
     const body = containerId === "evictionComparison"
-      ? rows
-          .map(
-            (row) => `
+      ? rows.map((row) => `
           <div class="benchmarkRow benchmarkRowTight ${row.name === sim.state.evictionPolicy ? "highlight" : ""}">
             <span><strong>${row.name}</strong></span>
             <span>${formatNumber(row.churn, 0)}</span>
@@ -624,12 +525,8 @@
             <span>${formatNumber(row.stability, 2)}</span>
             <span>${row.notes}</span>
           </div>
-        `
-          )
-          .join("")
-      : rows
-          .map(
-            (row) => `
+        `).join("")
+      : rows.map((row) => `
           <div class="benchmarkRow ${row.granularity === sim.state.promotionGranularity ? "highlight" : ""}">
             <span><strong>${row.name}</strong></span>
             <span>${formatNumber(row.promotedTokens, 0)}</span>
@@ -642,10 +539,7 @@
             <span>${formatNumber(row.relativeSpeedup, 2)}x</span>
             <span>${row.notes}</span>
           </div>
-        `
-          )
-          .join("");
-
+        `).join("");
     container.innerHTML = header + body;
   }
 
@@ -666,6 +560,110 @@
           : `Promoting ${promotedHeads.length} of ${model.kvHeads} heads across layers ${sim.state.promotedLayerStart}-${sim.state.promotedLayerEnd} increases sink capacity materially.`;
   }
 
+  function renderExperimentQueue() {
+    const container = document.getElementById("experimentQueue");
+    container.innerHTML = sim.experiments.queue.length
+      ? sim.experiments.queue.map((exp) => `
+          <div class="stackItem">
+            <strong>${exp.name}</strong>
+            <span>${exp.workload} | ${exp.runtimePolicy} | seed ${exp.seed}</span>
+            <span>duration ${exp.duration} | ${exp.promotionPolicy}</span>
+          </div>
+        `).join("")
+      : `<div class="stackEmpty">No queued experiments</div>`;
+  }
+
+  function renderExperimentResults(results) {
+    const container = document.getElementById("experimentResults");
+    container.innerHTML = results.length
+      ? results.map((result) => `
+          <div class="stackItem">
+            <strong>${result.name}</strong>
+            <span>Snapshot hash ${result.checksums.snapshotHash}</span>
+            <span>Execution stability ${result.orchestrator.executionStability.toFixed(2)}%</span>
+            <span>Deterministic decode ${result.orchestrator.deterministicDecodeHitRate.toFixed(2)}%</span>
+          </div>
+        `).join("")
+      : `<div class="stackEmpty">No experiment results yet</div>`;
+  }
+
+  function renderResultHistory() {
+    const db = sim.persistence.load();
+    document.getElementById("resultHistory").innerHTML = db.results.length
+      ? db.results.slice(0, 8).map((result) => `
+          <div class="stackItem">
+            <strong>${result.name}</strong>
+            <span>${result.createdAt}</span>
+            <span>${result.config.workloadPreset || result.config.workload || sim.state.workloadPreset}</span>
+            <span>${result.checksums ? result.checksums.snapshotHash : "no hash"}</span>
+          </div>
+        `).join("")
+      : `<div class="stackEmpty">No stored results yet</div>`;
+    document.getElementById("notebookHistory").innerHTML = db.notes.length
+      ? db.notes.slice(0, 6).map((note) => `
+          <div class="stackItem">
+            <strong>${note.createdAt}</strong>
+            <span>${note.note.slice(0, 120)}</span>
+          </div>
+        `).join("")
+      : `<div class="stackEmpty">No notebook notes yet</div>`;
+  }
+
+  function renderTraceStatus(status) {
+    const container = document.getElementById("traceStatus");
+    if (!status) {
+      container.innerHTML = `<div class="stackEmpty">No trace loaded</div>`;
+      return;
+    }
+    container.innerHTML = `
+      <div class="stackItem">
+        <strong>${status.valid ? "Trace loaded" : "Trace error"}</strong>
+        <span>${status.message || ""}</span>
+        ${status.summary ? `<span>${status.summary.eventCount} events | ${status.summary.sessionCount} sessions | avg sink ${status.summary.averageSink.toFixed(3)}</span>` : ""}
+      </div>
+    `;
+  }
+
+  function renderSweepResults(results) {
+    const container = document.getElementById("sweepSummary");
+    if (!results.length) {
+      container.innerHTML = `<div class="stackEmpty">No sweep results yet</div>`;
+      return;
+    }
+    container.innerHTML = results.slice(0, 8).map((result) => `
+      <div class="stackItem">
+        <strong>${result.name}</strong>
+        <span>${JSON.stringify(result.config)}</span>
+        <span>Stability ${result.orchestrator.executionStability.toFixed(2)}% | Speedup ${result.benchmark[4].relativeSpeedup.toFixed(2)}x</span>
+      </div>
+    `).join("");
+  }
+
+  function renderResearchGraphFromResults(results, title) {
+    if (!results.length) {
+      sim.graphs.renderSeries("graphSvg", title, [], "No data");
+      return;
+    }
+    const primaryKey = Object.keys(results[0].config).find((key) => !["workloadPreset", "executionPolicy", "partitionPolicy", "evictionPolicy", "promotionGranularity", "seed", "decodeSteps"].includes(key)) || "sramBudget";
+    const series = [
+      {
+        label: "Relative speedup",
+        points: results.map((result, index) => ({
+          x: Number(result.config[primaryKey] || index),
+          value: result.benchmark.find((row) => row.granularity === "per-head-layer")?.relativeSpeedup || 1,
+        })),
+      },
+      {
+        label: "Execution stability",
+        points: results.map((result, index) => ({
+          x: Number(result.config[primaryKey] || index),
+          value: result.orchestrator.executionStability,
+        })),
+      },
+    ];
+    sim.graphs.renderSeries("graphSvg", title, series, primaryKey);
+  }
+
   function buildArchitectureState(snapshot) {
     const { directory, dma, routing, orchestrator } = snapshot;
     return {
@@ -683,37 +681,22 @@
   }
 
   function updateSummary(snapshot) {
-    document.getElementById("modeLabel").textContent =
-      document.getElementById("promotionGranularity").selectedOptions[0].textContent;
+    document.getElementById("modeLabel").textContent = getSelectText("promotionGranularity");
     document.getElementById("sharedPrefixSavings").textContent = bytesToHuman(snapshot.sharedMetrics.bytesSaved);
     document.getElementById("readsAvoided").textContent = formatNumber(snapshot.routing.totalReadsAvoided, 1);
     document.getElementById("dmaBandwidthUse").textContent = `${formatNumber(snapshot.dma.utilization, 1)}%`;
     document.getElementById("promotionChurn").textContent = formatNumber(snapshot.orchestrator.promotionChurn, 0);
-    const activeBenchmark =
-      snapshot.benchmarkComparison.find((row) => row.granularity === sim.state.promotionGranularity) ||
-      snapshot.benchmarkComparison.find((row) => row.granularity === "per-head-layer");
-    document.getElementById("relativeSpeedup").textContent = `${formatNumber(activeBenchmark ? activeBenchmark.relativeSpeedup : 1, 2)}x`;
+    const activeBenchmark = snapshot.benchmarkComparison.find((row) => row.granularity === sim.state.promotionGranularity) || snapshot.benchmarkComparison[0];
+    document.getElementById("relativeSpeedup").textContent = `${formatNumber(activeBenchmark.relativeSpeedup, 2)}x`;
   }
 
-  function rerenderTimelineLinkedViews() {
-    if (!sim.memory.lastRun) {
-      return;
-    }
-    renderTimeline(sim.memory.lastRun.timeline);
-    renderDma(sim.memory.lastRun.dma);
-    renderArchitecture(sim.memory.lastRun.architectureState);
-    renderMicroarchitecture(sim.memory.lastRun);
-  }
-
-  function injectStressEvent(eventName) {
-    sim.memory.stressEvents[eventName] = (sim.memory.stressEvents[eventName] || 0) + 1;
-    runSimulation();
-  }
-
-  function runSimulation() {
+  function computeSnapshot(overrides = {}, options = {}) {
+    const baseState = sim.utils.cloneState();
+    const baseStress = { ...sim.memory.stressEvents };
+    Object.assign(sim.state, overrides);
     sim.ensureLayerRange();
     sim.ensureHeadEligibility();
-    syncControlValues();
+    sim.memory.policyRuntime = sim.policies.applyPolicyToState(sim.state);
 
     const model = {
       layers: sim.state.layers,
@@ -721,10 +704,7 @@
       headDim: sim.state.headDim,
       bytesPerElement: sim.state.bytesPerElement,
     };
-    sim.memory.policyRuntime = sim.policies.applyPolicyToState(sim.state);
-
     const sessions = sim.generateSessions();
-    fillSessionSelector(sessions);
     const layerBuckets = sim.computeLayerBuckets(sim.state.layers);
     const headProfiles = sim.generateHeadProfiles();
     const promotedHeads = sim.determinePromotedHeads(headProfiles);
@@ -748,7 +728,7 @@
       latency: routing.averageLatency,
       dmaBytes: dma.totalBytes,
     });
-    const mockSnapshot = {
+    const partitions = sim.orchestrator.buildPartitions({
       model,
       sessions,
       directory,
@@ -759,22 +739,23 @@
       tierState,
       compression,
       evictionComparison,
-    };
-    const partitions = sim.orchestrator.buildPartitions(mockSnapshot);
+    });
     const fragmentation = sim.fragmentation.build(directory, partitions);
     const orchestrator = sim.orchestrator.build({
-      ...mockSnapshot,
-      fragmentation,
-    });
-    const timeline = sim.timeline.buildEvents(sessions, directory, dma, routing, speculative, promotedHeads.map((head) => head.id));
-    const architectureState = buildArchitectureState({
       model,
       sessions,
       directory,
       routing,
       dma,
-      orchestrator,
+      speculative,
+      sharedMetrics,
+      tierState,
+      compression,
+      evictionComparison,
+      fragmentation,
     });
+    const timeline = sim.timeline.buildEvents(sessions, directory, dma, routing, speculative, promotedHeads.map((head) => head.id));
+    const architectureState = buildArchitectureState({ directory, dma, routing, orchestrator });
     const telemetry = sim.telemetry.build({
       sessions,
       tierState,
@@ -785,10 +766,23 @@
       sharedMetrics,
       fragmentation,
       compression,
+    }, { persistHistory: options.persistTelemetry !== false });
+    const metricsSummary = sim.metrics.summarize({
+      model,
+      sessions,
+      directory,
+      sharedMetrics,
+      dma,
+      routing,
+      speculative,
+      compression,
+      tierState,
+      fragmentation,
+      orchestrator,
+      telemetry,
     });
-    const metricsSummary = sim.metrics.summarize(orchestrator, tierState, telemetry);
 
-    sim.memory.lastRun = {
+    const snapshot = {
       model,
       sessions,
       layerBuckets,
@@ -811,30 +805,208 @@
       telemetry,
       metricsSummary,
       workload: sim.workloads.getActiveWorkload(),
+      state: sim.utils.cloneState(),
     };
-    sim.memory.timelineCursor = Math.min(sim.memory.timelineCursor, Math.max(0, timeline.length - 1));
 
-    renderHeadProfiles(headProfiles);
-    renderHeatmap(headProfiles, layerBuckets);
-    renderEfficiency(model, promotedHeads);
-    renderOrchestratorState(orchestrator);
-    renderExecutionWindows(orchestrator);
-    renderPartitions(partitions);
-    renderTimeline(timeline);
-    renderDma(dma);
-    renderRouting(routing, tierState);
-    renderSharedPrefix(sharedMetrics, sessions);
-    renderDirectory(directory);
-    renderSpeculative(speculative);
-    renderTierPanel(tierState);
-    renderCompressionPanel(compression);
-    renderFragmentation(fragmentation);
-    renderArchitecture(architectureState);
+    Object.assign(sim.state, baseState);
+    sim.memory.stressEvents = { ...baseStress };
+    sim.memory.policyRuntime = sim.policies.applyPolicyToState(sim.state);
+    return snapshot;
+  }
+
+  function renderSnapshot(snapshot) {
+    fillSessionSelector(snapshot.sessions);
+    renderHeadProfiles(snapshot.headProfiles);
+    renderHeatmap(snapshot.headProfiles, snapshot.layerBuckets);
+    renderEfficiency(snapshot.model, snapshot.promotedHeads);
+    renderOrchestratorState(snapshot.orchestrator);
+    renderExecutionWindows(snapshot.orchestrator);
+    renderPartitions(snapshot.partitions);
+    renderTimeline(activeTimeline().length ? activeTimeline() : snapshot.timeline);
+    renderDma(snapshot.dma);
+    renderRouting(snapshot.routing, snapshot.tierState);
+    renderSharedPrefix(snapshot.sharedMetrics, snapshot.sessions);
+    renderDirectory(snapshot.directory);
+    renderSpeculative(snapshot.speculative);
+    renderTierPanel(snapshot.tierState);
+    renderCompressionPanel(snapshot.compression);
+    renderFragmentation(snapshot.fragmentation);
+    renderArchitecture(snapshot.architectureState);
+    renderMicroarchitecture(snapshot);
+    renderTelemetry(snapshot.telemetry, snapshot.metricsSummary);
+    renderBenchmarkTable(snapshot.evictionComparison, "evictionComparison");
+    renderBenchmarkTable(snapshot.benchmarkComparison, "benchmarkTable");
+    updateSummary(snapshot);
+  }
+
+  function rerenderTimelineLinkedViews() {
+    if (!sim.memory.lastRun) {
+      return;
+    }
+    renderTimeline(activeTimeline());
+    renderDma(sim.memory.lastRun.dma);
+    renderArchitecture(sim.memory.lastRun.architectureState);
     renderMicroarchitecture(sim.memory.lastRun);
-    renderTelemetry(telemetry, metricsSummary);
-    renderBenchmarkTable(evictionComparison, "evictionComparison");
-    renderBenchmarkTable(benchmarkComparison, "benchmarkTable");
-    updateSummary(sim.memory.lastRun);
+  }
+
+  function injectStressEvent(eventName) {
+    sim.memory.overrideTimeline = null;
+    sim.memory.stressEvents[eventName] = (sim.memory.stressEvents[eventName] || 0) + 1;
+    runSimulation();
+  }
+
+  function queueCurrentExperiment() {
+    const definition = sim.experiments.makeDefinition({
+      name: document.getElementById("experimentName").value,
+      duration: Number(document.getElementById("experimentDuration").value),
+    });
+    sim.experiments.queueExperiment(definition);
+    renderExperimentQueue();
+    renderResultHistory();
+  }
+
+  function runCurrentExperiment() {
+    const definition = sim.experiments.makeDefinition({
+      name: document.getElementById("experimentName").value,
+      duration: Number(document.getElementById("experimentDuration").value),
+    });
+    const result = sim.experiments.runExperiment(definition, computeSnapshot);
+    renderExperimentResults([result]);
+    renderResultHistory();
+  }
+
+  function runQueuedExperiments() {
+    const results = sim.experiments.runBatch(computeSnapshot);
+    renderExperimentResults(results);
+    renderResultHistory();
+  }
+
+  function comparePolicies() {
+    const policies = [
+      "aggressive-promotion",
+      "bandwidth-optimized",
+      "latency-optimized",
+      "tenant-fairness-optimized",
+      "speculative-heavy",
+      "sram-conservative",
+    ];
+    const results = sim.experiments.comparePolicies(policies, computeSnapshot);
+    renderExperimentResults(results);
+    sim.graphs.renderSeries("graphSvg", "Policy Comparison", [
+      {
+        label: "Execution stability",
+        points: results.map((result, index) => ({ x: index, value: result.orchestrator.executionStability })),
+      },
+      {
+        label: "Deterministic decode",
+        points: results.map((result, index) => ({ x: index, value: result.orchestrator.deterministicDecodeHitRate })),
+      },
+    ], "Policy index");
+    renderResultHistory();
+  }
+
+  function runSweep() {
+    const sweepConfig = {
+      name: document.getElementById("experimentName").value || "Sweep",
+      param: document.getElementById("sweepParam").value,
+      scale: document.getElementById("sweepScale").value,
+      start: Number(document.getElementById("sweepStart").value),
+      end: Number(document.getElementById("sweepEnd").value),
+      steps: Number(document.getElementById("sweepSteps").value),
+      secondaryParam: document.getElementById("secondarySweepParam").value || undefined,
+      secondaryScale: document.getElementById("secondarySweepScale").value,
+      secondaryStart: Number(document.getElementById("secondarySweepStart").value),
+      secondaryEnd: Number(document.getElementById("secondarySweepEnd").value),
+      secondarySteps: Number(document.getElementById("secondarySweepSteps").value),
+    };
+    const results = sim.experiments.runSweep(sweepConfig, computeSnapshot);
+    renderSweepResults(results);
+    renderResearchGraphFromResults(
+      results,
+      sweepConfig.secondaryParam ? `${sweepConfig.param} x ${sweepConfig.secondaryParam} sweep` : `${sweepConfig.param} sweep`
+    );
+    renderResultHistory();
+  }
+
+  function verifyDeterministicReplay() {
+    const config = sim.utils.cloneState();
+    const verification = sim.reproducibility.verifyReplay(config, computeSnapshot);
+    renderExperimentResults([
+      {
+        name: "Deterministic replay verification",
+        checksums: { snapshotHash: verification.leftHash },
+        orchestrator: { executionStability: verification.deterministic ? 100 : 0, deterministicDecodeHitRate: verification.deterministic ? 100 : 0 },
+        benchmark: [],
+      },
+    ]);
+    renderTraceStatus({
+      valid: verification.deterministic,
+      message: verification.deterministic ? `Replay consistent (${verification.leftHash})` : `Replay diverged (${verification.leftHash} vs ${verification.rightHash})`,
+    });
+  }
+
+  function loadTrace() {
+    const text = document.getElementById("traceInput").value.trim();
+    const status = sim.replay.importTrace(text);
+    if (status.valid) {
+      status.summary = sim.replay.buildReplaySummary(sim.memory.importedTrace);
+    }
+    renderTraceStatus(status);
+    renderResultHistory();
+  }
+
+  function replayTrace() {
+    if (!sim.memory.importedTrace) {
+      renderTraceStatus({ valid: false, message: "Load a trace first." });
+      return;
+    }
+    sim.memory.overrideTimeline = sim.replay.toTimeline(sim.memory.importedTrace);
+    sim.memory.timelineCursor = 0;
+    renderTraceStatus({
+      valid: true,
+      message: "Trace replay timeline loaded.",
+      summary: sim.replay.buildReplaySummary(sim.memory.importedTrace),
+    });
+    rerenderTimelineLinkedViews();
+  }
+
+  function saveNotebookNote() {
+    const note = document.getElementById("notebookNote").value.trim();
+    if (!note) {
+      return;
+    }
+    sim.notebook.save(note);
+    renderResultHistory();
+  }
+
+  function generatePaperFigures() {
+    sim.graphs.exportFigure("graphSvg", "paper-figure-research-graph", [["series", "value"]]);
+    sim.graphs.exportFigure("telemetrySvg", "paper-figure-telemetry", [["series", "value"]]);
+    const arch = document.getElementById("architectureSvg");
+    const micro = document.getElementById("microarchitectureSvg");
+    const downloadSvg = (element, name) => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([element.outerHTML], { type: "image/svg+xml" }));
+      link.download = name;
+      link.click();
+    };
+    downloadSvg(arch, "paper-figure-architecture.svg");
+    downloadSvg(micro, "paper-figure-microarchitecture.svg");
+  }
+
+  function runSimulation() {
+    sim.memory.overrideTimeline = null;
+    syncControlValues();
+    const snapshot = computeSnapshot({}, { persistTelemetry: true });
+    snapshot.architectureState = buildArchitectureState(snapshot);
+    sim.memory.lastRun = snapshot;
+    sim.memory.timelineCursor = Math.min(sim.memory.timelineCursor, Math.max(0, snapshot.timeline.length - 1));
+    renderSnapshot(snapshot);
+    renderExperimentQueue();
+    renderResultHistory();
+    if (sim.experiments.lastSweep.length) {
+      renderSweepResults(sim.experiments.lastSweep);
+    }
   }
 
   function applyPreset(next) {
@@ -870,6 +1042,9 @@
   function bindControls() {
     sim.rangeIds.forEach((id) => {
       const input = document.getElementById(id);
+      if (!input) {
+        return;
+      }
       input.addEventListener("input", () => {
         sim.state[id] = Number(input.value);
         runSimulation();
@@ -882,7 +1057,7 @@
         return;
       }
       input.addEventListener("change", () => {
-        sim.state[id] = id === "bytesPerElement" || id === "timelineSpeed" ? Number(input.value) : input.value;
+        sim.state[id] = ["bytesPerElement", "timelineSpeed", "traceReplaySpeed"].includes(id) ? Number(input.value) : input.value;
         if (id === "workloadPreset") {
           sim.workloads.applyPresetToState();
         }
@@ -902,6 +1077,7 @@
         compactionMode: "enabled",
         promptLength: 18,
         decodeSteps: 12,
+        decodeConcurrency: 3,
         tenantCount: 3,
         sharedPrefixLength: 4,
         promotedHeads: 2,
@@ -928,6 +1104,7 @@
         compactionMode: "enabled",
         promptLength: 24,
         decodeSteps: 20,
+        decodeConcurrency: 6,
         tenantCount: 6,
         sharedPrefixLength: 6,
         promotedHeads: 4,
@@ -954,6 +1131,19 @@
     document.getElementById("attachShared").addEventListener("click", () => attachSharedPrefix(true));
     document.getElementById("detachShared").addEventListener("click", () => attachSharedPrefix(false));
     document.getElementById("generateSnapshot").addEventListener("click", () => sim.exporter.exportSnapshot());
+    document.getElementById("generatePaperFigures").addEventListener("click", generatePaperFigures);
+
+    document.getElementById("queueExperiment").addEventListener("click", queueCurrentExperiment);
+    document.getElementById("runExperiment").addEventListener("click", runCurrentExperiment);
+    document.getElementById("runBatchExperiments").addEventListener("click", runQueuedExperiments);
+    document.getElementById("comparePolicies").addEventListener("click", comparePolicies);
+    document.getElementById("verifyDeterministicReplay").addEventListener("click", verifyDeterministicReplay);
+    document.getElementById("runSweep").addEventListener("click", runSweep);
+    document.getElementById("loadTrace").addEventListener("click", loadTrace);
+    document.getElementById("replayTrace").addEventListener("click", replayTrace);
+    document.getElementById("saveNotebookNote").addEventListener("click", saveNotebookNote);
+    document.getElementById("exportNotebookMarkdown").addEventListener("click", () => sim.notebook.exportMarkdown(document.getElementById("notebookNote").value.trim()));
+    document.getElementById("exportNotebookHtml").addEventListener("click", () => sim.notebook.exportHtml(document.getElementById("notebookNote").value.trim()));
 
     [
       ["eventSramExhaustion", "sram-exhaustion"],
@@ -964,12 +1154,15 @@
       ["eventPrefixInvalidation", "prefix-invalidation"],
       ["eventBandwidthSaturation", "bandwidth-saturation"],
     ].forEach(([id, eventName]) => {
-      document.getElementById(id).addEventListener("click", () => injectStressEvent(eventName));
+      const el = document.getElementById(id);
+      el.addEventListener("click", () => injectStressEvent(eventName));
     });
   }
 
+  sim.captureSnapshotForConfig = computeSnapshot;
   sim.ensureHeadEligibility();
   bindControls();
   syncControlValues();
+  renderTraceStatus(null);
   runSimulation();
 })();

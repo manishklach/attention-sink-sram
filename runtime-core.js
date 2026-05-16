@@ -9,8 +9,10 @@
     workloadPreset: "multi-tenant-enterprise-serving",
     compressionMode: "quantized-hbm",
     compactionMode: "enabled",
+    seed: 202641062302,
     promptLength: 20,
     decodeSteps: 16,
+    decodeConcurrency: 4,
     tenantCount: 4,
     sharedPrefixLength: 5,
     layers: 80,
@@ -36,6 +38,7 @@
     executionWindowDuration: 8,
     pinningDuration: 5,
     sharedPoolPercent: 24,
+    traceReplaySpeed: 1,
     timelineSpeed: 1,
     directorySort: "score",
     directoryFilter: "all",
@@ -44,6 +47,7 @@
   sim.rangeIds = [
     "promptLength",
     "decodeSteps",
+    "decodeConcurrency",
     "tenantCount",
     "sharedPrefixLength",
     "layers",
@@ -68,6 +72,7 @@
     "executionWindowDuration",
     "pinningDuration",
     "sharedPoolPercent",
+    "seed",
   ];
 
   sim.selectIds = [
@@ -80,6 +85,7 @@
     "compactionMode",
     "bytesPerElement",
     "timelineSpeed",
+    "traceReplaySpeed",
     "directorySort",
     "directoryFilter",
   ];
@@ -154,6 +160,9 @@
         return 0;
       }
       return values.reduce((sum, value) => sum + value, 0) / values.length;
+    },
+    cloneState() {
+      return JSON.parse(JSON.stringify(sim.state));
     },
   };
 
@@ -281,6 +290,7 @@
   };
 
   sim.generateSessions = function generateSessions() {
+    const seedOffset = sim.state.seed % 11;
     const sessions = Array.from({ length: sim.state.tenantCount }, (_, index) => {
       const sessionId = sim.getSessionId(index);
       const override = sim.memory.sessionOverrides[sessionId] || {};
@@ -293,9 +303,9 @@
         attachedSharedPrefix,
         ragAttached,
         longPrefixLength: sim.state.sharedPrefixLength + 2 + (index % 3),
-        priority: 1 + (index % 3),
-        decodeRate: 1 + ((index + 1) % 4),
-        sinkDensity: 0.5 + (index % 4) * 0.1,
+        priority: 1 + ((index + seedOffset) % 3),
+        decodeRate: 1 + ((index + 1 + seedOffset) % Math.max(2, sim.state.decodeConcurrency)),
+        sinkDensity: 0.5 + ((index + seedOffset) % 4) * 0.1,
       };
     });
     return sessions;
