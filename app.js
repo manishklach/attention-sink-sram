@@ -12,6 +12,8 @@ const state = {
   sinkStrength: 0.74,
   hbmLatency: 18,
   sramLatency: 3,
+  draftAcceptance: 0.45,
+  verifierReuse: 0.55,
 };
 
 let lastRun = null;
@@ -30,6 +32,8 @@ const ids = [
   "sinkStrength",
   "hbmLatency",
   "sramLatency",
+  "draftAcceptance",
+  "verifierReuse",
 ];
 
 const tokenKinds = ["BOS", "SYS", "INST", "ANCHOR"];
@@ -67,6 +71,8 @@ function bindControls() {
       sinkStrength: 0.62,
       hbmLatency: 18,
       sramLatency: 3,
+      draftAcceptance: 0.28,
+      verifierReuse: 0.38,
     });
   });
   document.getElementById("presetAggressive").addEventListener("click", () => {
@@ -84,9 +90,12 @@ function bindControls() {
       sinkStrength: 0.84,
       hbmLatency: 20,
       sramLatency: 2,
+      draftAcceptance: 0.62,
+      verifierReuse: 0.74,
     });
   });
   document.getElementById("exportJson").addEventListener("click", exportJson);
+  document.getElementById("exportPatentFigure").addEventListener("click", exportPatentFigure);
 }
 
 function setPreset(next) {
@@ -205,7 +214,6 @@ function simulateDynamicController(tokens, heads, attentionByHead, tenantWeights
   const timeline = Array.from({ length: tokens.length }, () => []);
   const promotions = Array.from({ length: tokens.length }, () => 0);
   const evictions = Array.from({ length: tokens.length }, () => 0);
-  const sharedHitsByStep = [];
   const trace = [];
 
   const aggregateRows = aggregateAttention(attentionByHead, heads, tenantWeights);
@@ -286,8 +294,6 @@ function simulateDynamicController(tokens, heads, attentionByHead, tenantWeights
         hbmReads += 1;
       }
     });
-
-    sharedHitsByStep.push(sharedHits);
 
     const baselineCost = activeReads.length * state.hbmLatency;
     const actualCost = sramReads * state.sramLatency + hbmReads * state.hbmLatency;
@@ -393,6 +399,37 @@ function simulateStaticPolicy(tokens, aggregateRows) {
   };
 }
 
+function simulateSpeculativeOverlay(tokens, dynamicResult) {
+  const trace = dynamicResult.trace.map((entry, index) => {
+    const residentBias = entry.residentTokenIds.length / Math.max(state.sramBudget, 1);
+    const sharedBias = entry.sharedHits / Math.max(entry.sramReads || 1, 1);
+    const acceptance = clamp(
+      state.draftAcceptance + residentBias * 0.15 + sharedBias * 0.1 - (index % 3) * 0.03,
+      0,
+      0.98,
+    );
+    const accepted = acceptance >= 0.5;
+    const verifierSaved = accepted
+      ? Math.round((entry.sramReads * state.verifierReuse + entry.sharedHits) * (state.hbmLatency - state.sramLatency))
+      : 0;
+    return {
+      step: entry.step,
+      accepted,
+      acceptance,
+      verifierSaved,
+      reusedTokens: entry.residentTokenIds
+        .slice(0, Math.min(3, entry.residentTokenIds.length))
+        .map((tokenId) => tokens[tokenId].label),
+    };
+  });
+
+  return {
+    trace,
+    totalSaved: trace.reduce((acc, row) => acc + row.verifierSaved, 0),
+    acceptedSteps: trace.filter((row) => row.accepted).length,
+  };
+}
+
 function renderHeadProfiles(heads) {
   const container = document.getElementById("headProfiles");
   container.innerHTML = "";
@@ -455,6 +492,51 @@ function renderBenchmark(baseline, staticPolicy, dynamicResult) {
       <p class="subtle">Latency cost: ${row.latencyCost.toFixed(0)} | ${row.extra}</p>
     `;
     container.appendChild(div);
+  });
+}
+
+function renderSpeculative(speculativeResult) {
+  const container = document.getElementById("speculativeTable");
+  container.innerHTML = "";
+  const intro = document.createElement("div");
+  intro.className = "benchmarkRow";
+  intro.innerHTML = `
+    <div class="rowSplit">
+      <strong>Accepted draft steps</strong>
+      <span>${speculativeResult.acceptedSteps} / ${speculativeResult.trace.length}</span>
+    </div>
+    <p class="subtle">Estimated verifier-side savings: ${speculativeResult.totalSaved.toFixed(0)} latency units</p>
+  `;
+  container.appendChild(intro);
+
+  speculativeResult.trace.slice(0, 8).forEach((entry) => {
+    const div = document.createElement("div");
+    div.className = "benchmarkRow";
+    div.innerHTML = `
+      <div class="rowSplit">
+        <strong>Step ${entry.step}</strong>
+        <span>${entry.accepted ? "accepted" : "rejected"} @ ${(entry.acceptance * 100).toFixed(0)}%</span>
+      </div>
+      <p class="subtle">Verifier savings: ${entry.verifierSaved} | Reused hot tokens: ${entry.reusedTokens.join(", ") || "none"}</p>
+    `;
+    container.appendChild(div);
+  });
+}
+
+function renderFigureSummary(dynamicResult, speculativeResult) {
+  const container = document.getElementById("figureSummary");
+  container.innerHTML = "";
+  const cards = [
+    `SRAM budget: ${state.sramBudget} slots`,
+    `Final residents: ${dynamicResult.assignments.filter((token) => token.tier === "SRAM").map((token) => token.label).join(", ") || "none"}`,
+    `Shared prefix length: ${state.sharedPrefixLength}`,
+    `Speculative verifier savings: ${speculativeResult.totalSaved.toFixed(0)}`,
+  ];
+  cards.forEach((text) => {
+    const card = document.createElement("div");
+    card.className = "headCard";
+    card.innerHTML = `<p class="subtle">${text}</p>`;
+    container.appendChild(card);
   });
 }
 
@@ -531,10 +613,10 @@ function renderTimeline(tokens, timeline) {
   });
 }
 
-function renderTrace(trace, tokens) {
+function renderTrace(trace, tokens, speculativeTrace) {
   const container = document.getElementById("routingTrace");
   container.innerHTML = "";
-  trace.forEach((entry) => {
+  trace.forEach((entry, idx) => {
     const total = entry.sramReads + entry.hbmReads || 1;
     const sramWidth = (entry.sramReads / total) * 100;
     const hbmWidth = (entry.hbmReads / total) * 100;
@@ -544,6 +626,7 @@ function renderTrace(trace, tokens) {
         return `<span class="eventTag ${event.type}">${event.type}: ${label}</span>`;
       })
       .join("");
+    const spec = speculativeTrace[idx];
 
     const row = document.createElement("div");
     row.className = "traceRow";
@@ -556,14 +639,14 @@ function renderTrace(trace, tokens) {
         <div class="sramHits" style="width:${sramWidth}%"></div>
         <div class="hbmHits" style="width:${hbmWidth}%"></div>
       </div>
-      <p class="subtle">SRAM reads: ${entry.sramReads} | HBM reads: ${entry.hbmReads} | Shared-prefix hits: ${entry.sharedHits} | Saved ${entry.saved.toFixed(0)} latency units</p>
+      <p class="subtle">SRAM reads: ${entry.sramReads} | HBM reads: ${entry.hbmReads} | Shared-prefix hits: ${entry.sharedHits} | Draft ${spec.accepted ? "accepted" : "rejected"} | Saved ${entry.saved.toFixed(0)} + ${spec.verifierSaved.toFixed(0)} speculative units</p>
       <div class="eventTags">${labels || '<span class="eventTag">no controller events</span>'}</div>
     `;
     container.appendChild(row);
   });
 }
 
-function renderSummary(assignments, dynamicResult, baseline, staticPolicy) {
+function renderSummary(assignments, dynamicResult, baseline, staticPolicy, speculativeResult) {
   const sinkCount = assignments.filter((token) => token.tier === "SRAM").length;
   const dynamicCost = dynamicResult.trace.reduce((acc, row) => acc + row.actualCost, 0);
   const savedVsBaseline = baseline.latencyCost - dynamicCost;
@@ -576,6 +659,7 @@ function renderSummary(assignments, dynamicResult, baseline, staticPolicy) {
   document.getElementById("latencySaved").textContent = dynamicResult.latencySaved.toFixed(0);
   document.getElementById("sramHitRate").textContent = `${(dynamicResult.hitRate * 100).toFixed(1)}%`;
   document.getElementById("prefixLift").textContent = `${(prefixLift * 100).toFixed(1)}%`;
+  document.getElementById("speculativeSaved").textContent = speculativeResult.totalSaved.toFixed(0);
 
   const promotedLabels = assignments
     .filter((token) => token.tier === "SRAM")
@@ -585,7 +669,8 @@ function renderSummary(assignments, dynamicResult, baseline, staticPolicy) {
   document.getElementById("summaryText").textContent =
     `Final SRAM residents: ${promotedLabels}. With ${state.tenantCount} simulated tenants sharing the first ` +
     `${state.sharedPrefixLength} prompt tokens, the dynamic controller saved ${savedVsBaseline.toFixed(0)} latency units ` +
-    `versus an HBM-only baseline and ${savedVsStatic.toFixed(0)} versus a static one-shot placement policy.`;
+    `versus an HBM-only baseline, ${savedVsStatic.toFixed(0)} versus a static one-shot placement policy, and an additional ` +
+    `${speculativeResult.totalSaved.toFixed(0)} verifier-side speculative units.`;
 }
 
 function exportJson() {
@@ -596,12 +681,14 @@ function exportJson() {
   const payload = {
     exportedAt: new Date().toISOString(),
     patentApplicationNumber: "202641062302",
+    filingJurisdiction: "India",
     state,
     benchmark: lastRun.benchmark,
     heads: lastRun.heads,
     tokens: lastRun.dynamicResult.assignments,
     trace: lastRun.dynamicResult.trace,
     timeline: lastRun.dynamicResult.timeline,
+    speculativeTrace: lastRun.speculativeResult.trace,
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -611,6 +698,67 @@ function exportJson() {
   const link = document.createElement("a");
   link.href = url;
   link.download = "attention-sink-sram-trace.json";
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function exportPatentFigure() {
+  if (!lastRun) {
+    return;
+  }
+
+  const residents = lastRun.dynamicResult.assignments
+    .filter((token) => token.tier === "SRAM")
+    .map((token) => token.label)
+    .join(", ") || "none";
+
+  const svg = `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
+  <rect width="1200" height="700" fill="#fffdfa"/>
+  <rect x="40" y="40" width="240" height="90" rx="16" fill="#eef7f8" stroke="#0f5f67" stroke-width="3"/>
+  <text x="160" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">Prompt / Prefix</text>
+  <text x="160" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Shared prefix length: ${state.sharedPrefixLength}</text>
+
+  <rect x="340" y="40" width="300" height="130" rx="16" fill="#f7f2ea" stroke="#8a5b3f" stroke-width="3"/>
+  <text x="490" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">Placement Controller</text>
+  <text x="490" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">EMA alpha: ${state.emaAlpha}</text>
+  <text x="490" y="137" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Promote &gt; ${state.sinkThreshold}, Evict &lt; ${state.evictionThreshold}</text>
+
+  <rect x="720" y="40" width="220" height="110" rx="16" fill="#effaf2" stroke="#297a55" stroke-width="3"/>
+  <text x="830" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">SRAM Tier</text>
+  <text x="830" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Budget: ${state.sramBudget}</text>
+  <text x="830" y="137" text-anchor="middle" font-family="Georgia" font-size="16" fill="#5f5750">${residents}</text>
+
+  <rect x="960" y="40" width="200" height="110" rx="16" fill="#fff5ef" stroke="#b86a3a" stroke-width="3"/>
+  <text x="1060" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">HBM Tier</text>
+  <text x="1060" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Latency: ${state.hbmLatency}</text>
+
+  <line x1="280" y1="85" x2="340" y2="85" stroke="#171411" stroke-width="3"/>
+  <line x1="640" y1="95" x2="720" y2="95" stroke="#171411" stroke-width="3"/>
+  <line x1="940" y1="95" x2="960" y2="95" stroke="#171411" stroke-width="3"/>
+
+  <rect x="80" y="240" width="420" height="180" rx="16" fill="#ffffff" stroke="#d9d0c2" stroke-width="2"/>
+  <text x="290" y="280" text-anchor="middle" font-family="Georgia" font-size="26" fill="#171411">Head Profiles</text>
+  <text x="290" y="320" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">${lastRun.heads.map((head) => `${head.label}:${head.profile}`).join(" | ")}</text>
+  <text x="290" y="355" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Tenants: ${state.tenantCount}</text>
+
+  <rect x="560" y="240" width="560" height="180" rx="16" fill="#ffffff" stroke="#d9d0c2" stroke-width="2"/>
+  <text x="840" y="280" text-anchor="middle" font-family="Georgia" font-size="26" fill="#171411">Measured Outcome</text>
+  <text x="840" y="320" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">HBM reads avoided: ${lastRun.dynamicResult.readsAvoided}</text>
+  <text x="840" y="350" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Dynamic latency saved: ${lastRun.dynamicResult.latencySaved.toFixed(0)}</text>
+  <text x="840" y="380" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Speculative verifier savings: ${lastRun.speculativeResult.totalSaved.toFixed(0)}</text>
+
+  <text x="600" y="520" font-family="Georgia" font-size="24" text-anchor="middle" fill="#171411">Application No. 202641062302 | Filed in India</text>
+  <text x="600" y="560" font-family="Georgia" font-size="18" text-anchor="middle" fill="#5f5750">Methods and Systems for Attention-Sink-Aware SRAM Placement of Key-Value State in Transformer Inference</text>
+</svg>`;
+
+  const blob = new Blob([svg], { type: "image/svg+xml" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = "attention-sink-sram-patent-figure.svg";
   document.body.appendChild(link);
   link.click();
   link.remove();
@@ -629,14 +777,17 @@ function run() {
   const dynamicResult = simulateDynamicController(tokens, heads, attentionByHead, tenantWeights);
   const baseline = simulateBaseline(dynamicResult.aggregateRows);
   const staticPolicy = simulateStaticPolicy(tokens, dynamicResult.aggregateRows);
+  const speculativeResult = simulateSpeculativeOverlay(tokens, dynamicResult);
 
-  renderSummary(dynamicResult.assignments, dynamicResult, baseline, staticPolicy);
+  renderSummary(dynamicResult.assignments, dynamicResult, baseline, staticPolicy, speculativeResult);
   renderHeadProfiles(heads);
   renderBenchmark(baseline, staticPolicy, dynamicResult);
+  renderSpeculative(speculativeResult);
+  renderFigureSummary(dynamicResult, speculativeResult);
   renderTokenTable(dynamicResult.assignments);
   renderHeatmap(dynamicResult.aggregateRows);
   renderTimeline(dynamicResult.assignments, dynamicResult.timeline);
-  renderTrace(dynamicResult.trace, tokens);
+  renderTrace(dynamicResult.trace, tokens, speculativeResult.trace);
 
   lastRun = {
     heads,
@@ -647,8 +798,13 @@ function run() {
         latencyCost: dynamicResult.trace.reduce((acc, row) => acc + row.actualCost, 0),
         hitRate: dynamicResult.hitRate,
       },
+      speculative: {
+        totalSaved: speculativeResult.totalSaved,
+        acceptedSteps: speculativeResult.acceptedSteps,
+      },
     },
     dynamicResult,
+    speculativeResult,
   };
 }
 

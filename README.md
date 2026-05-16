@@ -27,6 +27,7 @@ The simulator is intentionally lightweight and browser-native. It is designed to
 
 - Indian patent application number: `202641062302`
 - Title: `Methods and Systems for Attention-Sink-Aware SRAM Placement of Key-Value State in Transformer Inference`
+- Filed in: `India`, through the Indian Patent Office patent e-filing system
 
 ## What this demo shows
 
