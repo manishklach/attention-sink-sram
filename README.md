@@ -1,27 +1,17 @@
 # Attention-Sink SRAM
 
-This repo is a dependency-free architecture simulator and visual explainer for `attention-sink-aware placement of transformer KV state into a high-speed memory tier`.
+This repo is a dependency-free, browser-native systems simulator for `attention-sink-aware placement of transformer KV state into a high-speed memory tier`.
 
-It is built around one practical question:
+It now goes beyond static placement and models a runtime orchestration story:
 
-`What changes when SRAM promotion becomes selective at the head and layer level instead of promoting entire token KV state?`
+- multi-tenant execution flow
+- DMA scheduling and promotion descriptors
+- decode-time routing between `SRAM`, `HBM`, and mixed mode
+- shared-prefix attach/detach and refcounted residency
+- speculative decode rollback and reclaimed SRAM
+- eviction-policy comparison and residency churn
 
-## Overview
-
-This project supports explanation of a transformer inference runtime that can:
-
-- observe repeated attention into sink-heavy tokens and shared prefixes
-- classify hot KV state using thresholded sink scores and EMA updates
-- migrate selected entries into a fast memory tier such as `SRAM`
-- route decode-time reads through a fast-path bypass instead of always reading from `HBM`
-- compare whole-token promotion against `per-head` and `per-head + layer-range` slice promotion
-
-The result is a stronger architecture artifact for:
-
-- patent counsel and patent drafting support
-- accelerator and systems architecture discussions
-- technical investor walkthroughs
-- heterogeneous inference design reviews
+Open [index.html](./index.html) directly in a browser. No build step or package manager is required.
 
 ## Patent reference
 
@@ -29,123 +19,196 @@ The result is a stronger architecture artifact for:
 - Title: `Methods and Systems for Attention-Sink-Aware SRAM Placement of Key-Value State in Transformer Inference`
 - Filed in: `India`, through the Indian Patent Office patent e-filing system
 
-## What the simulator now covers
+## Runtime orchestration simulator
 
-- promotion granularity modes:
-  - `Whole token KV`
-  - `Per-head KV slices`
-  - `Per-head + layer-range KV slices`
-- deterministic SRAM byte calculations using:
-  - `layers`
-  - `kvHeads`
-  - `headDim`
-  - `bytesPerElement`
-  - `promotedHeads`
-  - `promotedLayerStart`
-  - `promotedLayerEnd`
-- synthetic per-head behavior with profiles:
-  - `sink-heavy`
-  - `local`
-  - `retrieval-biased`
-  - `recency-biased`
-  - `diffuse`
-- layer-range weighting through a boost multiplier
-- dynamic EMA-based promotion and eviction
-- comparative benchmark rows for:
-  - `HBM only`
-  - `Static whole-token SRAM`
-  - `Dynamic whole-token SRAM`
-  - `Dynamic per-head SRAM`
-  - `Dynamic per-head + layer-range SRAM`
-- an interactive head/layer heatmap with promotion toggles
-- exportable JSON traces containing model, policy, head profile, promoted entry, and benchmark comparison data
+The simulator illustrates a runtime that can:
 
-## Why per-head promotion matters
+1. observe sink-heavy prompt and prefix behavior during prefill
+2. classify hot KV state using sink thresholds and EMA-style persistence
+3. issue DMA promotions into an SRAM tier
+4. keep shared-prefix entries resident across multiple sessions
+5. route decode-time lookups to `SRAM`, `HBM`, or mixed mode
+6. compare eviction policies under multi-tenant pressure
+7. handle speculative draft acceptance, rejection, and reclamation
 
-Whole-token KV promotion is easy to explain, but it over-allocates SRAM because every head and every layer is promoted together.
+## Feature highlights
 
-Per-head promotion is closer to the real efficiency story:
+### Placement and slice selectivity
 
-- if `3` of `8` KV heads are promoted, only those hot slices consume SRAM
-- that reduces per-token SRAM usage by roughly `62.5%`
-- the same SRAM budget can hold about `2.67x` more promoted sink entries
+- `Whole token KV`
+- `Per-head KV slices`
+- `Per-head + layer-range KV slices`
+- interactive head eligibility toggles
+- head/layer heatmap
+
+### Decode routing
+
+- routing table per decode step
+- SRAM hit, miss, and mixed-mode visualization
+- estimated latency under active residency state
+
+### DMA scheduling
+
+- deterministic DMA queue
+- transfer descriptors with session, token range, head range, layer range, bytes, and timing
+- active, queued, and completed transfer views
+- bandwidth utilization meter
+
+### Shared-prefix reuse
+
+- multiple sessions attach to one promoted prefix
+- shared entries are promoted once and refcounted
+- attach/detach actions update residency behavior
+- avoided duplicate promotions and saved SRAM bytes are surfaced
+
+### Multi-tenant SRAM residency
+
+- residency directory with:
+  - session id
+  - token range
+  - head range
+  - layer range
+  - sink score
+  - age
+  - refcount
+  - tier
+  - shared / pinned / evicting / stale flags
+
+### Eviction policy comparison
+
+- `LRU`
+- `sink-score-aware`
+- `EMA-based`
+- `refcount-protected`
+- `pinned shared-prefix`
+
+### Speculative decode handling
+
+- draft tokens, accepted tokens, rejected tokens
+- rollback frequency
+- wasted DMA bytes
+- reclaimed SRAM
+- stable sink retention
+
+## Why per-head promotion still matters
+
+Whole-token promotion is simple but expensive. The more realistic SRAM efficiency story is selective.
 
 With the default model geometry:
 
 - whole-token bytes per token = `2 * 80 * 8 * 128 * 2 = 327,680 B`
-- per-head bytes per token = `2 * 80 * 3 * 128 * 2 = 122,880 B`
-- reduction = `62.5%`
+- per-head bytes per token with `3/8` promoted heads = `2 * 80 * 3 * 128 * 2 = 122,880 B`
+- footprint reduction = `62.5%`
+- effective sink capacity increase = about `2.67x`
 
-Layer-range selection pushes this further by only promoting selected heads across a chosen subset of layers.
+Layer-range selection compresses this further by promoting only selected heads within a chosen layer interval.
 
-## Repo contents
+## Timeline explanation
 
-- `index.html` - browser-native simulator UI
-- `styles.css` - layout, panels, heatmap, and benchmark styling
-- `app.js` - deterministic simulation logic and JSON export
-- `docs/architecture.md` - architecture flow and memory-tier explanation
-- `docs/benchmark-methodology.md` - assumptions and benchmark model
-- `docs/claim-map.md` - feature-to-patent-concept mapping
-- `LICENSE` - MIT license
+The execution timeline panel illustrates:
 
-## How to use
+- `Prefill`
+- `Sink detection`
+- `DMA promotion`
+- `SRAM residency`
+- `Decode routing`
+- `Eviction`
+- `Re-promotion`
+- `Shared-prefix attach/detach`
 
-Open [index.html](./index.html) directly in a browser.
+Playback controls:
 
-No build step, package manager, or external dependency is required.
+- `Play`
+- `Pause`
+- `Step`
+- speed multiplier
 
-## Main controls
+Each event includes:
 
-- `Promotion granularity`
-- `Prompt length`
-- `Decode steps`
-- `Concurrent tenants`
-- `Shared prefix length`
-- `Layers`
-- `KV heads`
-- `Head dimension`
-- `Bytes per element`
-- `Promoted heads`
-- `Promoted layer start`
-- `Promoted layer end`
-- `Layer boost multiplier`
-- `Promotion threshold`
-- `Eviction threshold`
-- `EMA alpha`
-- `Dwell steps`
-- `SRAM token budget`
-- `Sink strength`
-- `HBM latency`
-- `SRAM latency`
+- timestamp
+- session id
+- token range
+- heads affected
+- layer range
+- bytes moved
+- source tier
+- destination tier
+- estimated latency
 
-## Docs
+## Export examples
+
+Use `Generate Research Snapshot` to export:
+
+- `research-snapshot.json`
+- `timeline-trace.json`
+- `dma-trace.json`
+- `residency-snapshot.json`
+- `benchmark-comparison.csv`
+- `architecture-view.svg`
+
+## Architecture screenshots section
+
+Suggested captures:
+
+- execution timeline with an active decode-routing event
+- DMA panel with active and queued descriptors
+- runtime architecture diagram with highlighted block
+- shared-prefix reuse panel showing refcounted residency
+
+## Benchmark screenshots section
+
+Suggested captures:
+
+- runtime benchmark comparison table
+- eviction policy comparison table
+- residency directory filtered to shared or evicting entries
+- speculative decode panel with rollback rows
+
+## Documentation
+
+Existing docs:
 
 - [Architecture](./docs/architecture.md)
 - [Benchmark methodology](./docs/benchmark-methodology.md)
 - [Claim-support map](./docs/claim-map.md)
 
-## Screenshot placeholder
+Runtime orchestration docs:
 
-Suggested captures for the repo home page:
+- [Runtime orchestration](./docs/runtime-orchestration.md)
+- [DMA engine](./docs/dma-engine.md)
+- [Shared prefix reuse](./docs/shared-prefix-reuse.md)
+- [Speculative decode](./docs/speculative-decode.md)
 
-- hero and control panel
-- SRAM efficiency card showing whole-token vs per-head bytes
-- head/layer heatmap with promoted slices highlighted
-- comparative benchmark table with the active policy row highlighted
+## Repo structure
+
+- `index.html` - simulator shell and panels
+- `styles.css` - styling and layout
+- `runtime-core.js` - state, model geometry, sessions, head profiles, byte formulas
+- `residency.js` - SRAM directory and shared-prefix metrics
+- `dma.js` - transfer descriptors and queue scheduling
+- `routing.js` - decode routing decisions
+- `eviction.js` - eviction-policy scoring and comparison
+- `speculative.js` - speculative decode traces
+- `timeline.js` - timeline event generation and playback
+- `benchmark.js` - runtime comparison tables
+- `export.js` - research snapshot exports
+- `app.js` - UI binding and rendering orchestration
+
+## Disclaimer
+
+This repository is a `deterministic educational simulator`, not a production inference runtime, hardware simulator, or full transformer benchmark.
+
+It is intended to illustrate and support explanation of:
+
+- runtime promotion orchestration
+- SRAM vs HBM routing
+- DMA-driven residency changes
+- per-head and per-layer selective placement
+- multi-tenant shared-prefix reuse
+- speculative rollback behavior
+
+It does `not` claim cycle-accurate hardware timing, exact model-quality impact, or legal conclusions about patentability or infringement.
 
 ## Maintainer
 
 - `Manish KL`
-
-## Disclaimer
-
-This repository is a `deterministic architecture simulator`, not a production transformer runtime or a full-model benchmark.
-
-It is intended to support explanation of:
-
-- sink-score-driven promotion
-- SRAM vs HBM tiering
-- per-head and per-layer placement tradeoffs
-- decode-time routing and estimated read avoidance
-
-It does `not` claim cycle-accurate hardware timing, exact model quality impact, or production inference throughput.

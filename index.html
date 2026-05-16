@@ -3,29 +3,29 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Attention-Sink SRAM</title>
+  <title>Attention-Sink SRAM Runtime Orchestration Simulator</title>
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <main class="page">
     <section class="hero">
-      <div class="eyebrow">Patent Support Artifact</div>
+      <div class="eyebrow">Runtime Orchestration Artifact</div>
       <h1>Attention-Sink-Aware SRAM Placement of Transformer KV State</h1>
       <p class="lede">
-        This browser-native simulator explains why `per-head` and `per-layer-range` promotion matters:
-        not all KV slices deserve SRAM, and selective placement can preserve the fast-path advantage while
-        reducing SRAM footprint materially.
+        This browser-native simulator extends slice placement into a live inference-runtime view:
+        multi-tenant shared-prefix reuse, DMA promotion orchestration, decode-time routing, speculative
+        rollback, and eviction-policy behavior are all modeled as deterministic execution flows.
       </p>
       <div class="heroMeta">
         <span>Indian application: <strong>202641062302</strong></span>
         <span>Filed in India</span>
-        <span>Focus: slice promotion + comparative benchmarking</span>
+        <span>Focus: runtime flow + DMA + decode routing + shared reuse</span>
       </div>
     </section>
 
     <section class="layout">
       <aside class="panel controls">
-        <h2>Promotion Policy</h2>
+        <h2>Runtime Controls</h2>
 
         <label>
           <span>Promotion granularity</span>
@@ -37,24 +37,35 @@
         </label>
 
         <label>
+          <span>Eviction policy</span>
+          <select id="evictionPolicy">
+            <option value="lru">LRU</option>
+            <option value="sink-score-aware">Sink-score-aware</option>
+            <option value="ema-based">EMA-based</option>
+            <option value="refcount-protected">Refcount-protected</option>
+            <option value="pinned-shared-prefix">Pinned shared-prefix</option>
+          </select>
+        </label>
+
+        <label>
           <span>Prompt length</span>
-          <input id="promptLength" type="range" min="8" max="40" value="18">
-          <strong id="promptLengthValue">18</strong>
+          <input id="promptLength" type="range" min="10" max="48" value="20">
+          <strong id="promptLengthValue">20</strong>
         </label>
         <label>
           <span>Decode steps</span>
-          <input id="decodeSteps" type="range" min="8" max="40" value="18">
-          <strong id="decodeStepsValue">18</strong>
+          <input id="decodeSteps" type="range" min="8" max="40" value="16">
+          <strong id="decodeStepsValue">16</strong>
         </label>
         <label>
-          <span>Concurrent tenants</span>
+          <span>Concurrent sessions</span>
           <input id="tenantCount" type="range" min="1" max="12" value="4">
           <strong id="tenantCountValue">4</strong>
         </label>
         <label>
           <span>Shared prefix length</span>
-          <input id="sharedPrefixLength" type="range" min="1" max="8" value="4">
-          <strong id="sharedPrefixLengthValue">4</strong>
+          <input id="sharedPrefixLength" type="range" min="1" max="12" value="5">
+          <strong id="sharedPrefixLengthValue">5</strong>
         </label>
 
         <h3>Model Geometry</h3>
@@ -82,7 +93,7 @@
           </select>
         </label>
 
-        <h3>Selection Controls</h3>
+        <h3>Slice Placement</h3>
         <label>
           <span>Promoted heads</span>
           <input id="promotedHeads" type="range" min="1" max="16" value="3">
@@ -104,15 +115,15 @@
           <strong id="layerBoostMultiplierValue">1.6</strong>
         </label>
 
-        <h3>Dynamic Controller</h3>
+        <h3>Controller</h3>
         <label>
           <span>Promotion threshold</span>
-          <input id="sinkThreshold" type="range" min="0.2" max="0.9" value="0.56" step="0.01">
+          <input id="sinkThreshold" type="range" min="0.2" max="0.95" value="0.56" step="0.01">
           <strong id="sinkThresholdValue">0.56</strong>
         </label>
         <label>
           <span>Eviction threshold</span>
-          <input id="evictionThreshold" type="range" min="0.05" max="0.7" value="0.28" step="0.01">
+          <input id="evictionThreshold" type="range" min="0.05" max="0.8" value="0.28" step="0.01">
           <strong id="evictionThresholdValue">0.28</strong>
         </label>
         <label>
@@ -121,19 +132,43 @@
           <strong id="emaAlphaValue">0.72</strong>
         </label>
         <label>
-          <span>Dwell steps before eviction</span>
-          <input id="dwellSteps" type="range" min="1" max="8" value="3">
+          <span>Dwell steps</span>
+          <input id="dwellSteps" type="range" min="1" max="10" value="3">
           <strong id="dwellStepsValue">3</strong>
         </label>
         <label>
-          <span>SRAM token budget</span>
-          <input id="sramBudget" type="range" min="1" max="16" value="5">
-          <strong id="sramBudgetValue">5</strong>
+          <span>SRAM entry budget</span>
+          <input id="sramBudget" type="range" min="2" max="24" value="8">
+          <strong id="sramBudgetValue">8</strong>
         </label>
         <label>
           <span>Sink strength</span>
           <input id="sinkStrength" type="range" min="0.25" max="0.95" value="0.74" step="0.01">
           <strong id="sinkStrengthValue">0.74</strong>
+        </label>
+
+        <h3>DMA Engine</h3>
+        <label>
+          <span>DMA bandwidth (GB/s proxy)</span>
+          <input id="dmaBandwidth" type="range" min="16" max="256" step="8" value="96">
+          <strong id="dmaBandwidthValue">96</strong>
+        </label>
+        <label>
+          <span>Outstanding transfer slots</span>
+          <input id="dmaSlots" type="range" min="1" max="8" value="3">
+          <strong id="dmaSlotsValue">3</strong>
+        </label>
+
+        <h3>Speculative Decode</h3>
+        <label>
+          <span>Draft tokens per step</span>
+          <input id="draftTokens" type="range" min="1" max="6" value="2">
+          <strong id="draftTokensValue">2</strong>
+        </label>
+        <label>
+          <span>Draft accept rate</span>
+          <input id="draftAcceptRate" type="range" min="0.2" max="0.95" value="0.68" step="0.01">
+          <strong id="draftAcceptRateValue">0.68</strong>
         </label>
 
         <h3>Latency Model</h3>
@@ -148,35 +183,63 @@
           <strong id="sramLatencyValue">3</strong>
         </label>
 
+        <h3>Timeline</h3>
+        <label>
+          <span>Playback speed</span>
+          <select id="timelineSpeed">
+            <option value="0.5">0.5x</option>
+            <option value="1" selected>1x</option>
+            <option value="2">2x</option>
+            <option value="4">4x</option>
+          </select>
+        </label>
+
         <div class="buttonRow">
           <button id="rerun">Rerun</button>
+          <button id="playTimeline" class="secondary">Play</button>
+          <button id="pauseTimeline" class="secondary">Pause</button>
+          <button id="stepTimeline" class="secondary">Step</button>
+        </div>
+
+        <h3>Session Actions</h3>
+        <label>
+          <span>Selected session</span>
+          <select id="selectedSession"></select>
+        </label>
+        <div class="buttonRow">
+          <button id="addSession" class="secondary">Add Session</button>
+          <button id="attachShared" class="secondary">Attach Prefix</button>
+          <button id="detachShared" class="secondary">Detach Prefix</button>
+        </div>
+
+        <div class="buttonRow">
           <button id="presetConservative" class="secondary">Conservative</button>
           <button id="presetAggressive" class="secondary">Aggressive</button>
-          <button id="exportJson" class="secondary">Export JSON</button>
+          <button id="generateSnapshot">Generate Research Snapshot</button>
         </div>
       </aside>
 
       <section class="content">
         <div class="metricGrid">
           <article class="metricCard">
-            <span class="metricLabel">Current mode</span>
+            <span class="metricLabel">Runtime mode</span>
             <strong id="modeLabel">Whole token KV</strong>
           </article>
           <article class="metricCard">
-            <span class="metricLabel">Promoted tokens</span>
-            <strong id="promotedTokenCount">0</strong>
-          </article>
-          <article class="metricCard">
-            <span class="metricLabel">Promoted heads</span>
-            <strong id="selectedHeadCount">0</strong>
-          </article>
-          <article class="metricCard">
-            <span class="metricLabel">Promoted layers</span>
-            <strong id="selectedLayerCount">0</strong>
+            <span class="metricLabel">Shared-prefix savings</span>
+            <strong id="sharedPrefixSavings">0 B</strong>
           </article>
           <article class="metricCard">
             <span class="metricLabel">HBM reads avoided</span>
             <strong id="readsAvoided">0</strong>
+          </article>
+          <article class="metricCard">
+            <span class="metricLabel">DMA bandwidth use</span>
+            <strong id="dmaBandwidthUse">0%</strong>
+          </article>
+          <article class="metricCard">
+            <span class="metricLabel">Promotion churn</span>
+            <strong id="promotionChurn">0</strong>
           </article>
           <article class="metricCard">
             <span class="metricLabel">Relative speedup</span>
@@ -211,49 +274,148 @@
           <div class="panel">
             <h2>Head Profiles</h2>
             <p class="subtle">
-              Sink-heavy and retrieval-biased heads are eligible by default. Click a head card or the heatmap
-              column to override eligibility.
+              Sink-heavy and retrieval-biased heads are eligible by default. Click a head card or heatmap column
+              to override eligibility for slice promotion.
             </p>
             <div id="headProfiles" class="headProfiles"></div>
           </div>
         </div>
 
         <div class="panel">
-          <h2>Head-Layer Heatmap</h2>
+          <h2>Execution Timeline</h2>
+          <div class="timelineToolbar">
+            <div id="timelineStatus" class="badge neutral">Paused</div>
+            <div class="subtle">Stages: Prefill, Sink detection, DMA promotion, SRAM residency, Decode routing, Eviction, Re-promotion, Shared-prefix attach/detach</div>
+          </div>
+          <div id="executionTimeline" class="executionTimeline"></div>
+          <div id="timelineDetails" class="timelineDetails"></div>
+        </div>
+
+        <div class="gridPair tripleTop">
+          <div class="panel">
+            <h2>DMA Engine</h2>
+            <div class="meterBlock">
+              <div class="meterLabel">
+                <span>Bandwidth utilization</span>
+                <strong id="dmaUtilizationLabel">0%</strong>
+              </div>
+              <div class="meter">
+                <div id="dmaUtilizationBar" class="meterFill"></div>
+              </div>
+            </div>
+            <div class="dmaColumns">
+              <div>
+                <h3>Active</h3>
+                <div id="dmaActive" class="stackList"></div>
+              </div>
+              <div>
+                <h3>Queued</h3>
+                <div id="dmaQueued" class="stackList"></div>
+              </div>
+              <div>
+                <h3>Completed</h3>
+                <div id="dmaCompleted" class="stackList"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel">
+            <h2>Decode Routing</h2>
+            <p class="subtle">
+              Each decode step routes to SRAM, HBM, or mixed mode depending on head/layer slice residency.
+            </p>
+            <div id="routingTable" class="routingTable"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Runtime Architecture View</h2>
+          <svg id="architectureSvg" class="architectureSvg" viewBox="0 0 1280 280" role="img" aria-label="Runtime architecture diagram">
+            <defs>
+              <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+                <path d="M0,0 L10,3 L0,6 z" fill="#0e5f66"></path>
+              </marker>
+            </defs>
+          </svg>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Head-Layer Heatmap</h2>
+            <p class="subtle">
+              X-axis is KV head. Y-axis is layer bucket. Promoted slices highlight the active selective-placement policy.
+            </p>
+            <div id="heatmapLegend" class="legend"></div>
+            <div id="headHeatmap" class="headHeatmap"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Shared Prefix Reuse</h2>
+            <div id="sharedPrefixPanel" class="sharedPrefixPanel"></div>
+          </div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>SRAM Residency Directory</h2>
+            <div class="filterRow">
+              <label>
+                <span>Sort by</span>
+                <select id="directorySort">
+                  <option value="score">Sink score</option>
+                  <option value="age">Residency age</option>
+                  <option value="refcount">Refcount</option>
+                  <option value="session">Session</option>
+                </select>
+              </label>
+              <label>
+                <span>Filter</span>
+                <select id="directoryFilter">
+                  <option value="all">All entries</option>
+                  <option value="shared">Shared only</option>
+                  <option value="evicting">Evicting</option>
+                  <option value="pinned">Pinned</option>
+                  <option value="stale">Stale</option>
+                </select>
+              </label>
+            </div>
+            <div id="residencyDirectory" class="directoryTable"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Speculative Decode</h2>
+            <div id="speculativePanel" class="speculativePanel"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Eviction Policy Comparison</h2>
           <p class="subtle">
-            X-axis is KV head. Y-axis is layer bucket. Colors show slice sink intensity. `Promoted` means the
-            current policy would place that slice in SRAM.
+            Compare churn, thrash, DMA traffic, and latency across multiple residency-management policies.
           </p>
-          <div id="heatmapLegend" class="legend"></div>
-          <div id="headHeatmap" class="headHeatmap"></div>
+          <div id="evictionComparison" class="benchmarkTable"></div>
         </div>
 
         <div class="panel">
           <h2>Comparative Benchmark Table</h2>
           <p class="subtle">
-            Deterministic systems simulator. These are architecture-explainer estimates, not a full model benchmark.
+            Deterministic systems simulator. These values illustrate runtime orchestration tradeoffs, not full-model throughput.
           </p>
           <div id="benchmarkTable" class="benchmarkTable"></div>
-        </div>
-
-        <div class="gridPair">
-          <div class="panel">
-            <h2>Token Placement Table</h2>
-            <p class="subtle">
-              Final token sink scores from the dynamic controller, with promotion/eviction counts and current tier.
-            </p>
-            <div id="tokenTable" class="tokenTable"></div>
-          </div>
-
-          <div class="panel">
-            <h2>Policy Summary</h2>
-            <div id="policySummary" class="summaryBox"></div>
-          </div>
         </div>
       </section>
     </section>
   </main>
 
+  <script src="runtime-core.js"></script>
+  <script src="eviction.js"></script>
+  <script src="residency.js"></script>
+  <script src="dma.js"></script>
+  <script src="routing.js"></script>
+  <script src="speculative.js"></script>
+  <script src="timeline.js"></script>
+  <script src="benchmark.js"></script>
+  <script src="export.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
