@@ -207,7 +207,13 @@ button.secondary {
 .headProfiles,
 .summaryBox,
 .stackList,
-.specList {
+.specList,
+.orchestratorGrid,
+.windowsPanel,
+.partitionPanel,
+.tierPanel,
+.compressionPanel,
+.telemetryCards {
   display: grid;
   gap: 10px;
 }
@@ -341,6 +347,40 @@ button.secondary {
   margin-top: 14px;
 }
 
+.windowBars,
+.partitionBars {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.windowBar,
+.partitionCard,
+.tierCard {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 12px;
+  background: #fff;
+  display: grid;
+  gap: 4px;
+}
+
+.windowBar.stable {
+  border-left: 5px solid var(--good);
+}
+
+.windowBar.unstable {
+  border-left: 5px solid var(--danger);
+}
+
+.partitionCard.oversubscribed {
+  border-color: rgba(170, 64, 56, 0.36);
+}
+
+.partitionCard.starved {
+  background: rgba(181, 107, 54, 0.08);
+}
+
 .dmaColumns,
 .specSummary {
   display: grid;
@@ -419,6 +459,12 @@ button.secondary {
   grid-template-columns: 150px 90px 90px 90px 110px 100px 100px 90px 90px minmax(200px, 1fr);
 }
 
+.routingFooter {
+  color: var(--muted);
+  font-size: 0.85rem;
+  padding: 2px 4px 0;
+}
+
 .routingHeader,
 .directoryHeader,
 .benchmarkHeader {
@@ -451,6 +497,11 @@ button.secondary {
 .benchmarkRow.highlight {
   border-color: rgba(14, 95, 102, 0.45);
   background: rgba(220, 239, 241, 0.3);
+}
+
+.benchmarkHeaderTight,
+.benchmarkRowTight {
+  grid-template-columns: 150px 120px 100px 90px 110px 100px minmax(200px, 1fr);
 }
 
 .headHeatmap {
@@ -526,9 +577,18 @@ button.secondary {
 }
 
 .sharedPrefixPanel,
-.speculativePanel {
+.speculativePanel,
+.fragmentationSummary {
   display: grid;
   gap: 10px;
+}
+
+.tierPanel {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.compressionPanel {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .sharedStat {
@@ -578,6 +638,54 @@ button.secondary {
 
 .specRow.stable {
   border-color: rgba(28, 122, 81, 0.32);
+}
+
+.fragmentationMap {
+  display: grid;
+  grid-template-columns: repeat(10, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.fragBlock {
+  min-height: 58px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: #fff;
+  padding: 8px;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 3px;
+  font-size: 0.78rem;
+}
+
+.fragBlock.free {
+  background: #f8f3ec;
+}
+
+.fragBlock.allocated {
+  background: rgba(14, 95, 102, 0.12);
+}
+
+.fragBlock.shared {
+  background: rgba(28, 122, 81, 0.14);
+}
+
+.fragBlock.pinned {
+  background: rgba(139, 74, 46, 0.14);
+}
+
+.telemetrySvg {
+  width: 100%;
+  min-height: 280px;
+  border-radius: 18px;
+  border: 1px dashed var(--line);
+  background: linear-gradient(180deg, #fff, #f9f5ee);
+}
+
+.orchestratorGrid {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .architectureSvg {
@@ -633,7 +741,10 @@ button.secondary {
 
   .gridPair,
   .dmaColumns,
-  .specSummary {
+  .specSummary,
+  .tierPanel,
+  .compressionPanel,
+  .orchestratorGrid {
     grid-template-columns: 1fr;
   }
 
@@ -662,5 +773,9 @@ button.secondary {
 
   .executionTimeline {
     min-height: 250px;
+  }
+
+  .fragmentationMap {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
   }
 }

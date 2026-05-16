@@ -48,6 +48,42 @@
         </label>
 
         <label>
+          <span>Execution policy</span>
+          <select id="executionPolicy">
+            <option value="latency-optimized">Latency optimized</option>
+            <option value="bandwidth-optimized">Bandwidth optimized</option>
+            <option value="sram-conservative">SRAM conservative</option>
+            <option value="aggressive-promotion">Aggressive promotion</option>
+            <option value="speculative-heavy">Speculative-heavy</option>
+            <option value="tenant-fairness-optimized">Tenant-fairness optimized</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Partition policy</span>
+          <select id="partitionPolicy">
+            <option value="static-equal-partition">Static equal partition</option>
+            <option value="weighted-by-tenant-priority">Weighted by tenant priority</option>
+            <option value="weighted-by-sink-density">Weighted by sink density</option>
+            <option value="weighted-by-active-decode-rate">Weighted by active decode rate</option>
+            <option value="shared-prefix-reserved-pool">Shared-prefix reserved pool</option>
+          </select>
+        </label>
+
+        <label>
+          <span>Workload preset</span>
+          <select id="workloadPreset">
+            <option value="chatbot-assistant">Chatbot assistant</option>
+            <option value="long-context-reasoning">Long-context reasoning</option>
+            <option value="rag-heavy-retrieval">RAG-heavy retrieval</option>
+            <option value="code-generation">Code generation</option>
+            <option value="multi-agent-orchestration">Multi-agent orchestration</option>
+            <option value="speculative-decode-stress">Speculative decode stress</option>
+            <option value="multi-tenant-enterprise-serving">Multi-tenant enterprise serving</option>
+          </select>
+        </label>
+
+        <label>
           <span>Prompt length</span>
           <input id="promptLength" type="range" min="10" max="48" value="20">
           <strong id="promptLengthValue">20</strong>
@@ -171,6 +207,40 @@
           <strong id="draftAcceptRateValue">0.68</strong>
         </label>
 
+        <h3>Deterministic Windows</h3>
+        <label>
+          <span>Execution window duration</span>
+          <input id="executionWindowDuration" type="range" min="4" max="18" value="8">
+          <strong id="executionWindowDurationValue">8</strong>
+        </label>
+        <label>
+          <span>Pinning duration</span>
+          <input id="pinningDuration" type="range" min="2" max="14" value="5">
+          <strong id="pinningDurationValue">5</strong>
+        </label>
+        <label>
+          <span>Shared pool percent</span>
+          <input id="sharedPoolPercent" type="range" min="0" max="60" value="24">
+          <strong id="sharedPoolPercentValue">24</strong>
+        </label>
+
+        <h3>Tiering</h3>
+        <label>
+          <span>Compression mode</span>
+          <select id="compressionMode">
+            <option value="uncompressed-sram">Uncompressed SRAM</option>
+            <option value="quantized-hbm">Quantized HBM</option>
+            <option value="compressed-cold-storage">Compressed cold storage</option>
+          </select>
+        </label>
+        <label>
+          <span>Compaction mode</span>
+          <select id="compactionMode">
+            <option value="enabled">Compaction enabled</option>
+            <option value="disabled">Compaction disabled</option>
+          </select>
+        </label>
+
         <h3>Latency Model</h3>
         <label>
           <span>HBM latency</span>
@@ -215,7 +285,19 @@
         <div class="buttonRow">
           <button id="presetConservative" class="secondary">Conservative</button>
           <button id="presetAggressive" class="secondary">Aggressive</button>
-          <button id="generateSnapshot">Generate Research Snapshot</button>
+          <button id="replayWorkload" class="secondary">Replay Workload</button>
+          <button id="generateSnapshot">Generate Research Artifact</button>
+        </div>
+
+        <h3>Stress Events</h3>
+        <div class="buttonRow">
+          <button id="eventSramExhaustion" class="secondary">SRAM exhaustion</button>
+          <button id="eventDmaCongestion" class="secondary">DMA congestion</button>
+          <button id="eventSpeculativeCollapse" class="secondary">Speculative collapse</button>
+          <button id="eventEvictionStorm" class="secondary">Eviction storm</button>
+          <button id="eventTenantBurst" class="secondary">Tenant burst</button>
+          <button id="eventPrefixInvalidation" class="secondary">Prefix invalidation</button>
+          <button id="eventBandwidthSaturation" class="secondary">Bandwidth saturation</button>
         </div>
       </aside>
 
@@ -245,6 +327,22 @@
             <span class="metricLabel">Relative speedup</span>
             <strong id="relativeSpeedup">1.00x</strong>
           </article>
+        </div>
+
+        <div class="panel">
+          <h2>Orchestrator State</h2>
+          <div id="orchestratorState" class="orchestratorGrid"></div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Deterministic Execution Windows</h2>
+            <div id="executionWindows" class="windowsPanel"></div>
+          </div>
+          <div class="panel">
+            <h2>SRAM Budget Partitions</h2>
+            <div id="partitionPanel" class="partitionPanel"></div>
+          </div>
         </div>
 
         <div class="gridPair">
@@ -339,6 +437,22 @@
           </svg>
         </div>
 
+        <div class="panel">
+          <h2>Microarchitecture View</h2>
+          <svg id="microarchitectureSvg" class="architectureSvg" viewBox="0 0 1280 320" role="img" aria-label="Microarchitecture diagram"></svg>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Multi-Tier Memory Routing</h2>
+            <div id="tierPanel" class="tierPanel"></div>
+          </div>
+          <div class="panel">
+            <h2>Compression and Cold Storage</h2>
+            <div id="compressionPanel" class="compressionPanel"></div>
+          </div>
+        </div>
+
         <div class="gridPair">
           <div class="panel">
             <h2>Head-Layer Heatmap</h2>
@@ -389,6 +503,18 @@
         </div>
 
         <div class="panel">
+          <h2>SRAM Fragmentation Map</h2>
+          <div id="fragmentationSummary" class="fragmentationSummary"></div>
+          <div id="fragmentationMap" class="fragmentationMap"></div>
+        </div>
+
+        <div class="panel">
+          <h2>Telemetry Dashboard</h2>
+          <div id="telemetryCards" class="telemetryCards"></div>
+          <svg id="telemetrySvg" class="telemetrySvg" viewBox="0 0 1200 280" role="img" aria-label="Telemetry dashboard"></svg>
+        </div>
+
+        <div class="panel">
           <h2>Eviction Policy Comparison</h2>
           <p class="subtle">
             Compare churn, thrash, DMA traffic, and latency across multiple residency-management policies.
@@ -408,6 +534,14 @@
   </main>
 
   <script src="runtime-core.js"></script>
+  <script src="policies.js"></script>
+  <script src="workloads.js"></script>
+  <script src="compression.js"></script>
+  <script src="tiers.js"></script>
+  <script src="fragmentation.js"></script>
+  <script src="orchestrator.js"></script>
+  <script src="telemetry.js"></script>
+  <script src="metrics.js"></script>
   <script src="eviction.js"></script>
   <script src="residency.js"></script>
   <script src="dma.js"></script>

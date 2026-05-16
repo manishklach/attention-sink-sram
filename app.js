@@ -128,9 +128,7 @@
       `;
       card.addEventListener("click", () => {
         sim.memory.timelineCursor = index;
-        renderTimeline(sim.memory.lastRun.timeline);
-        renderDma(sim.memory.lastRun.dma);
-        renderArchitecture(sim.memory.lastRun.architectureState);
+        rerenderTimelineLinkedViews();
       });
       container.appendChild(card);
     });
@@ -165,32 +163,30 @@
     document.getElementById("dmaUtilizationLabel").textContent = `${formatNumber(dmaState.utilization, 1)}%`;
     document.getElementById("dmaUtilizationBar").style.width = `${Math.min(100, dmaState.utilization)}%`;
 
-    const groups = [
+    [
       ["dmaActive", active],
       ["dmaQueued", queued.slice(0, 8)],
       ["dmaCompleted", completed],
-    ];
-
-    groups.forEach(([id, items]) => {
+    ].forEach(([id, items]) => {
       const container = document.getElementById(id);
       container.innerHTML = items.length
         ? items
             .map(
               (item) => `
-            <div class="stackItem">
-              <strong>${item.id}</strong>
-              <span>${item.sessionId} | tokens ${item.tokenRange}</span>
-              <span>${bytesToHuman(item.bytes)} | ${item.source} → ${item.destination}</span>
-              <span>t${item.enqueueTime} to t${item.completionTime}</span>
-            </div>
-          `
+          <div class="stackItem">
+            <strong>${item.id}</strong>
+            <span>${item.sessionId} | tokens ${item.tokenRange}</span>
+            <span>${bytesToHuman(item.bytes)} | ${item.source} → ${item.destination}</span>
+            <span>t${item.enqueueTime} to t${item.completionTime}</span>
+          </div>
+        `
             )
             .join("")
         : `<div class="stackEmpty">No items</div>`;
     });
   }
 
-  function renderRouting(routingState) {
+  function renderRouting(routingState, tierState) {
     const container = document.getElementById("routingTable");
     const rows = routingState.rows.slice(0, 14);
     container.innerHTML = `
@@ -220,6 +216,7 @@
       `
         )
         .join("")}
+      <div class="routingFooter">Routing mix: SRAM ${formatNumber(tierState.tierHitRates.SRAM, 1)}% | HBM ${formatNumber(tierState.tierHitRates.HBM, 1)}% | Compressed ${formatNumber(tierState.tierHitRates["compressed-HBM"], 1)}%</div>
     `;
   }
 
@@ -316,19 +313,180 @@
     `;
   }
 
+  function renderOrchestratorState(orchestrator) {
+    const container = document.getElementById("orchestratorState");
+    container.innerHTML = `
+      <div class="sharedStat"><span>Active sessions</span><strong>${orchestrator.activeSessions}</strong></div>
+      <div class="sharedStat"><span>Total SRAM used</span><strong>${bytesToHuman(orchestrator.totalSramUsed)}</strong></div>
+      <div class="sharedStat"><span>DMA utilization</span><strong>${formatNumber(orchestrator.dmaUtilization, 1)}%</strong></div>
+      <div class="sharedStat"><span>Pending promotions</span><strong>${orchestrator.pendingPromotions}</strong></div>
+      <div class="sharedStat"><span>Decode queue depth</span><strong>${orchestrator.decodeQueueDepth}</strong></div>
+      <div class="sharedStat"><span>Rollback pressure</span><strong>${formatNumber(orchestrator.rollbackPressure, 1)}</strong></div>
+      <div class="sharedStat"><span>Residency pressure</span><strong>${formatNumber(orchestrator.residencyPressure, 1)}%</strong></div>
+      <div class="sharedStat"><span>Promotion churn</span><strong>${orchestrator.promotionChurn}</strong></div>
+      <div class="sharedStat"><span>Execution stability</span><strong>${formatNumber(orchestrator.executionStability, 1)}%</strong></div>
+      <div class="sharedStat"><span>Policy</span><strong>${sim.state.executionPolicy}</strong></div>
+    `;
+  }
+
+  function renderExecutionWindows(orchestrator) {
+    const container = document.getElementById("executionWindows");
+    container.innerHTML = `
+      <div class="windowsSummary">
+        <div class="sharedStat"><span>Deterministic decode hit rate</span><strong>${formatNumber(orchestrator.deterministicDecodeHitRate, 1)}%</strong></div>
+        <div class="sharedStat"><span>Residency volatility</span><strong>${formatNumber(orchestrator.residencyVolatility, 1)}%</strong></div>
+        <div class="sharedStat"><span>Stable windows</span><strong>${formatNumber(orchestrator.executionWindowStability * 100, 1)}%</strong></div>
+      </div>
+      <div class="windowBars">
+        ${orchestrator.windows
+          .map(
+            (window) => `
+          <div class="windowBar ${window.stable ? "stable" : "unstable"}">
+            <strong>${window.id}</strong>
+            <span>${window.start}-${window.end}</span>
+            <span>Guarantee ${formatNumber(window.guarantee * 100, 1)}%</span>
+            <span>Pinned ${window.pinnedEntries}</span>
+            <span>Risk ${window.risk}</span>
+          </div>
+        `
+          )
+          .join("")}
+      </div>
+    `;
+  }
+
+  function renderPartitions(partitions) {
+    const container = document.getElementById("partitionPanel");
+    container.innerHTML = `
+      <div class="sharedStat"><span>Total budget</span><strong>${bytesToHuman(partitions.totalBudgetBytes)}</strong></div>
+      <div class="sharedStat"><span>Shared reserved pool</span><strong>${bytesToHuman(partitions.sharedReserved)}</strong></div>
+      <div class="partitionBars">
+        ${partitions.allocations
+          .map((allocation) => {
+            const utilization = allocation.allocatedBytes > 0 ? (allocation.usedBytes / allocation.allocatedBytes) * 100 : 0;
+            return `
+              <div class="partitionCard ${allocation.oversubscribed ? "oversubscribed" : ""} ${allocation.starvationRisk ? "starved" : ""}">
+                <strong>${allocation.sessionId}</strong>
+                <span>Allocated ${bytesToHuman(allocation.allocatedBytes)}</span>
+                <span>Used ${bytesToHuman(allocation.usedBytes)}</span>
+                <span>Wasted ${bytesToHuman(allocation.wastedBytes)}</span>
+                <span>Utilization ${formatNumber(utilization, 1)}%</span>
+              </div>
+            `;
+          })
+          .join("")}
+      </div>
+    `;
+  }
+
+  function renderTierPanel(tierState) {
+    const container = document.getElementById("tierPanel");
+    container.innerHTML = tierState.tiers
+      .map(
+        (tier) => `
+      <div class="tierCard">
+        <strong>${tier.id}</strong>
+        <span>Latency ${formatNumber(tier.latency, 1)}</span>
+        <span>Bandwidth ${formatNumber(tier.bandwidth, 1)}</span>
+        <span>Capacity ${bytesToHuman(tier.capacity)}</span>
+        <span>Energy ${formatNumber(tier.energyCost, 1)}</span>
+        <span>Hit rate ${formatNumber(tierState.tierHitRates[tier.id] || 0, 1)}%</span>
+        <span>Traffic ${bytesToHuman(tierState.traffic[tier.id] || 0)}</span>
+      </div>
+    `
+      )
+      .join("");
+  }
+
+  function renderCompressionPanel(compressionState) {
+    const container = document.getElementById("compressionPanel");
+    container.innerHTML = `
+      <div class="sharedStat"><span>Compression mode</span><strong>${compressionState.mode}</strong></div>
+      <div class="sharedStat"><span>Compression ratio</span><strong>${formatNumber(compressionState.ratio, 2)}x raw</strong></div>
+      <div class="sharedStat"><span>Effective capacity gain</span><strong>${formatNumber(compressionState.effectiveCapacityGain, 2)}x</strong></div>
+      <div class="sharedStat"><span>Decompression latency</span><strong>${formatNumber(compressionState.decompressionLatency, 1)}</strong></div>
+      <div class="sharedStat"><span>Bandwidth savings</span><strong>${bytesToHuman(compressionState.bandwidthSavings)}</strong></div>
+      <div class="sharedStat"><span>Compressed regions</span><strong>${bytesToHuman(compressionState.compressedBytes)}</strong></div>
+      <div class="sharedStat"><span>Decompression events</span><strong>${compressionState.decompressionEvents}</strong></div>
+    `;
+  }
+
+  function renderFragmentation(fragmentationState) {
+    document.getElementById("fragmentationSummary").innerHTML = `
+      <div class="sharedStat"><span>Fragmentation</span><strong>${formatNumber(fragmentationState.fragmentationPercent, 1)}%</strong></div>
+      <div class="sharedStat"><span>Compaction overhead</span><strong>${formatNumber(fragmentationState.compactionOverhead, 1)}</strong></div>
+      <div class="sharedStat"><span>Relocation traffic</span><strong>${bytesToHuman(fragmentationState.relocationTraffic)}</strong></div>
+      <div class="sharedStat"><span>Failed placements</span><strong>${fragmentationState.failedPlacements}</strong></div>
+    `;
+    document.getElementById("fragmentationMap").innerHTML = fragmentationState.blocks
+      .map(
+        (block) => `
+      <div class="fragBlock ${block.status}">
+        <span>${block.index}</span>
+        <small>${block.sessionId || "-"}</small>
+      </div>
+    `
+      )
+      .join("");
+  }
+
+  function renderTelemetry(telemetry, metricsSummary) {
+    const cards = document.getElementById("telemetryCards");
+    cards.innerHTML = `
+      <div class="sharedStat"><span>SRAM hit rate</span><strong>${formatNumber(telemetry.current.sramHitRate, 1)}%</strong></div>
+      <div class="sharedStat"><span>HBM hit rate</span><strong>${formatNumber(telemetry.current.hbmHitRate, 1)}%</strong></div>
+      <div class="sharedStat"><span>DMA queue occupancy</span><strong>${formatNumber(telemetry.current.dmaQueueOccupancy, 1)}</strong></div>
+      <div class="sharedStat"><span>Rollback rate</span><strong>${formatNumber(telemetry.current.rollbackRate * 100, 1)}%</strong></div>
+      <div class="sharedStat"><span>Deterministic decode</span><strong>${formatNumber(metricsSummary.deterministicDecodeHitRate, 1)}%</strong></div>
+      <div class="sharedStat"><span>Bandwidth saved</span><strong>${bytesToHuman(metricsSummary.effectiveBandwidthSaved)}</strong></div>
+    `;
+
+    const svg = document.getElementById("telemetrySvg");
+    const history = telemetry.history;
+    const width = 1100;
+    const height = 220;
+    const step = history.length > 1 ? width / (history.length - 1) : width;
+    const paths = [
+      { key: "sramHitRate", color: "#1c7a51", scale: 2 },
+      { key: "dmaQueueOccupancy", color: "#0e5f66", scale: 18 },
+      { key: "rollbackRate", color: "#aa4038", scale: 160 },
+      { key: "deterministicDecode", color: "#8b4a2e", scale: 2 },
+    ];
+    svg.innerHTML = `
+      <rect x="24" y="16" width="1120" height="220" rx="20" fill="#fffdfa" stroke="#ddd2c4"></rect>
+      ${paths
+        .map((line) => {
+          const d = history
+            .map((point, index) => {
+              const x = 40 + index * step;
+              const value = point[line.key] * line.scale;
+              const y = 220 - Math.min(180, value);
+              return `${index === 0 ? "M" : "L"} ${x} ${y}`;
+            })
+            .join(" ");
+          return `<path d="${d}" fill="none" stroke="${line.color}" stroke-width="3"></path>`;
+        })
+        .join("")}
+      ${paths
+        .map((line, index) => `<text x="${52 + index * 190}" y="248" fill="${line.color}" font-size="14">${line.key}</text>`)
+        .join("")}
+    `;
+  }
+
   function renderArchitecture(architectureState) {
     const svg = document.getElementById("architectureSvg");
     const activeEvent = sim.memory.lastRun ? sim.memory.lastRun.timeline[sim.memory.timelineCursor] : null;
     const activeStage = activeEvent ? activeEvent.stage : "";
     const blocks = [
       { key: "tokenizer", label: "Tokenizer", x: 24, y: 44 },
-      { key: "prefill", label: "Prefill engine", x: 170, y: 44 },
-      { key: "detector", label: "Sink detector", x: 336, y: 44 },
-      { key: "dma", label: "DMA scheduler", x: 520, y: 44 },
-      { key: "sram", label: "SRAM cache", x: 708, y: 44 },
-      { key: "hbm", label: "HBM KV store", x: 888, y: 44 },
-      { key: "router", label: "Decode router", x: 1062, y: 44 },
-      { key: "eviction", label: "Eviction manager", x: 438, y: 182 },
+      { key: "prefill", label: "Prefill engine", x: 160, y: 44 },
+      { key: "detector", label: "Sink detector", x: 316, y: 44 },
+      { key: "orchestrator", label: "Orchestration controller", x: 472, y: 44 },
+      { key: "dma", label: "DMA scheduler", x: 664, y: 44 },
+      { key: "sram", label: "SRAM cache", x: 840, y: 44 },
+      { key: "hbm", label: "HBM KV store", x: 1000, y: 44 },
+      { key: "router", label: "Decode router", x: 1130, y: 44 },
+      { key: "eviction", label: "Eviction manager", x: 428, y: 182 },
       { key: "directory", label: "Multi-tenant directory", x: 760, y: 182 },
     ];
     const activeMap = {
@@ -342,11 +500,12 @@
       "Shared-prefix attach": "directory",
       "Shared-prefix detach": "directory",
     };
-    const highlightedKey = activeMap[activeStage];
+    const highlightedKey = activeMap[activeStage] || "orchestrator";
     const connections = [
       ["tokenizer", "prefill"],
       ["prefill", "detector"],
-      ["detector", "dma"],
+      ["detector", "orchestrator"],
+      ["orchestrator", "dma"],
       ["dma", "sram"],
       ["hbm", "dma"],
       ["sram", "router"],
@@ -354,6 +513,7 @@
       ["router", "eviction"],
       ["directory", "sram"],
       ["directory", "router"],
+      ["orchestrator", "directory"],
     ];
 
     svg.innerHTML = `
@@ -374,9 +534,9 @@
           const active = block.key === highlightedKey ? "active" : "";
           return `
             <g class="archBlock ${active}">
-              <rect x="${block.x}" y="${block.y}" width="136" height="64" rx="18"></rect>
-              <text x="${block.x + 68}" y="${block.y + 28}" text-anchor="middle">${block.label}</text>
-              <text x="${block.x + 68}" y="${block.y + 48}" text-anchor="middle" class="archSub">${architectureState[block.key]}</text>
+              <rect x="${block.x}" y="${block.y}" width="132" height="64" rx="18"></rect>
+              <text x="${block.x + 66}" y="${block.y + 28}" text-anchor="middle">${block.label}</text>
+              <text x="${block.x + 66}" y="${block.y + 48}" text-anchor="middle" class="archSub">${architectureState[block.key]}</text>
             </g>
           `;
         })
@@ -384,11 +544,49 @@
     `;
   }
 
+  function renderMicroarchitecture(snapshot) {
+    const svg = document.getElementById("microarchitectureSvg");
+    const activeEvent = snapshot.timeline[sim.memory.timelineCursor];
+    const activeLabel = activeEvent ? activeEvent.stage : "idle";
+    const banks = Array.from({ length: 6 }, (_, index) => ({
+      id: `Bank ${index + 1}`,
+      pressure: Math.min(100, 28 + index * 9 + snapshot.fragmentation.fragmentationPercent * 0.4),
+    }));
+    svg.innerHTML = `
+      <rect x="24" y="22" width="1220" height="262" rx="22" fill="#fffdfa" stroke="#ddd2c4"></rect>
+      <g class="archBlock active"><rect x="44" y="48" width="136" height="64" rx="18"></rect><text x="112" y="78" text-anchor="middle">Decode engine</text><text x="112" y="98" text-anchor="middle" class="archSub">${activeLabel}</text></g>
+      <g class="archBlock"><rect x="220" y="48" width="136" height="64" rx="18"></rect><text x="288" y="78" text-anchor="middle">Attention fetch</text><text x="288" y="98" text-anchor="middle" class="archSub">${formatNumber(snapshot.routing.totalReadsAvoided, 0)} routed</text></g>
+      <g class="archBlock"><rect x="400" y="48" width="136" height="64" rx="18"></rect><text x="468" y="78" text-anchor="middle">Routing fabric</text><text x="468" y="98" text-anchor="middle" class="archSub">${snapshot.routing.rows.filter((row) => row.routingDecision === "Mixed").length} mixed</text></g>
+      <g class="archBlock"><rect x="582" y="48" width="136" height="64" rx="18"></rect><text x="650" y="78" text-anchor="middle">DMA engine</text><text x="650" y="98" text-anchor="middle" class="archSub">${snapshot.dma.descriptors.length} ops</text></g>
+      <g class="archBlock"><rect x="770" y="48" width="136" height="64" rx="18"></rect><text x="838" y="78" text-anchor="middle">HBM controller</text><text x="838" y="98" text-anchor="middle" class="archSub">${formatNumber(snapshot.tierState.tierHitRates.HBM, 1)}% HBM</text></g>
+      <g class="archBlock"><rect x="956" y="48" width="136" height="64" rx="18"></rect><text x="1024" y="78" text-anchor="middle">Compression engine</text><text x="1024" y="98" text-anchor="middle" class="archSub">${snapshot.compression.decompressionEvents} events</text></g>
+      <g class="archBlock"><rect x="1116" y="48" width="108" height="64" rx="18"></rect><text x="1170" y="78" text-anchor="middle">Directory</text><text x="1170" y="98" text-anchor="middle" class="archSub">${snapshot.directory.entries.length} entries</text></g>
+      ${banks
+        .map(
+          (bank, index) => `
+        <g>
+          <rect x="${56 + index * 188}" y="182" width="132" height="54" rx="16" fill="#f7efe3" stroke="#ddd2c4"></rect>
+          <rect x="${64 + index * 188}" y="212" width="${Math.min(116, bank.pressure)}" height="12" rx="6" fill="${bank.pressure > 70 ? "#aa4038" : bank.pressure > 45 ? "#b56b36" : "#1c7a51"}"></rect>
+          <text x="${122 + index * 188}" y="202" text-anchor="middle" font-size="13" fill="#191613">${bank.id}</text>
+          <text x="${122 + index * 188}" y="248" text-anchor="middle" font-size="12" fill="#615a54">${formatNumber(bank.pressure, 1)}% pressure</text>
+        </g>
+      `
+        )
+        .join("")}
+      <line x1="180" y1="80" x2="220" y2="80" class="archLine" marker-end="url(#arrow)"></line>
+      <line x1="356" y1="80" x2="400" y2="80" class="archLine" marker-end="url(#arrow)"></line>
+      <line x1="536" y1="80" x2="582" y2="80" class="archLine" marker-end="url(#arrow)"></line>
+      <line x1="718" y1="80" x2="770" y2="80" class="archLine" marker-end="url(#arrow)"></line>
+      <line x1="906" y1="80" x2="956" y2="80" class="archLine" marker-end="url(#arrow)"></line>
+      <line x1="1092" y1="80" x2="1116" y2="80" class="archLine" marker-end="url(#arrow)"></line>
+    `;
+  }
+
   function renderBenchmarkTable(rows, containerId) {
     const container = document.getElementById(containerId);
     const header = containerId === "evictionComparison"
       ? `
-        <div class="benchmarkHeader">
+        <div class="benchmarkHeader benchmarkHeaderTight">
           <span>Policy</span>
           <span>Promotion churn</span>
           <span>Thrash rate</span>
@@ -417,7 +615,7 @@
       ? rows
           .map(
             (row) => `
-          <div class="benchmarkRow ${row.name === sim.state.evictionPolicy ? "highlight" : ""}">
+          <div class="benchmarkRow benchmarkRowTight ${row.name === sim.state.evictionPolicy ? "highlight" : ""}">
             <span><strong>${row.name}</strong></span>
             <span>${formatNumber(row.churn, 0)}</span>
             <span>${formatNumber(row.thrashRate, 2)}</span>
@@ -468,32 +666,48 @@
           : `Promoting ${promotedHeads.length} of ${model.kvHeads} heads across layers ${sim.state.promotedLayerStart}-${sim.state.promotedLayerEnd} increases sink capacity materially.`;
   }
 
-  function buildArchitectureState(directory, dmaState, routingState) {
+  function buildArchitectureState(snapshot) {
+    const { directory, dma, routing, orchestrator } = snapshot;
     return {
       tokenizer: `${sim.state.tenantCount} sessions`,
       prefill: `${sim.state.promptLength} prompt tokens`,
       detector: `${directory.entries.filter((entry) => entry.sinkScore >= sim.state.sinkThreshold).length} sink candidates`,
-      dma: `${dmaState.descriptors.length} transfers`,
+      orchestrator: `${formatNumber(orchestrator.executionStability, 1)}% stable`,
+      dma: `${dma.descriptors.length} transfers`,
       sram: `${directory.entries.filter((entry) => entry.tier === "SRAM").length} active entries`,
-      hbm: `${formatNumber(routingState.totalMisses, 0)} fallback reads`,
-      router: `${routingState.rows.filter((row) => row.routingDecision === "Mixed").length} mixed routes`,
+      hbm: `${formatNumber(routing.totalMisses, 0)} fallback reads`,
+      router: `${routing.rows.filter((row) => row.routingDecision === "Mixed").length} mixed routes`,
       eviction: sim.state.evictionPolicy,
       directory: `${directory.summary.sharedUsers} shared refs`,
     };
   }
 
-  function updateSummary(sharedMetrics, routingState, dmaState, evictionRows, benchmarkRows) {
+  function updateSummary(snapshot) {
     document.getElementById("modeLabel").textContent =
       document.getElementById("promotionGranularity").selectedOptions[0].textContent;
-    document.getElementById("sharedPrefixSavings").textContent = bytesToHuman(sharedMetrics.bytesSaved);
-    document.getElementById("readsAvoided").textContent = formatNumber(routingState.totalReadsAvoided, 1);
-    document.getElementById("dmaBandwidthUse").textContent = `${formatNumber(dmaState.utilization, 1)}%`;
-    const activeEviction = evictionRows.find((row) => row.name === sim.state.evictionPolicy);
-    document.getElementById("promotionChurn").textContent = formatNumber(activeEviction ? activeEviction.churn : 0, 0);
+    document.getElementById("sharedPrefixSavings").textContent = bytesToHuman(snapshot.sharedMetrics.bytesSaved);
+    document.getElementById("readsAvoided").textContent = formatNumber(snapshot.routing.totalReadsAvoided, 1);
+    document.getElementById("dmaBandwidthUse").textContent = `${formatNumber(snapshot.dma.utilization, 1)}%`;
+    document.getElementById("promotionChurn").textContent = formatNumber(snapshot.orchestrator.promotionChurn, 0);
     const activeBenchmark =
-      benchmarkRows.find((row) => row.granularity === sim.state.promotionGranularity) ||
-      benchmarkRows.find((row) => row.granularity === "per-head-layer");
+      snapshot.benchmarkComparison.find((row) => row.granularity === sim.state.promotionGranularity) ||
+      snapshot.benchmarkComparison.find((row) => row.granularity === "per-head-layer");
     document.getElementById("relativeSpeedup").textContent = `${formatNumber(activeBenchmark ? activeBenchmark.relativeSpeedup : 1, 2)}x`;
+  }
+
+  function rerenderTimelineLinkedViews() {
+    if (!sim.memory.lastRun) {
+      return;
+    }
+    renderTimeline(sim.memory.lastRun.timeline);
+    renderDma(sim.memory.lastRun.dma);
+    renderArchitecture(sim.memory.lastRun.architectureState);
+    renderMicroarchitecture(sim.memory.lastRun);
+  }
+
+  function injectStressEvent(eventName) {
+    sim.memory.stressEvents[eventName] = (sim.memory.stressEvents[eventName] || 0) + 1;
+    runSimulation();
   }
 
   function runSimulation() {
@@ -507,6 +721,7 @@
       headDim: sim.state.headDim,
       bytesPerElement: sim.state.bytesPerElement,
     };
+    sim.memory.policyRuntime = sim.policies.applyPolicyToState(sim.state);
 
     const sessions = sim.generateSessions();
     fillSessionSelector(sessions);
@@ -514,25 +729,64 @@
     const headProfiles = sim.generateHeadProfiles();
     const promotedHeads = sim.determinePromotedHeads(headProfiles);
     const directory = sim.residency.buildDirectory(sessions, headProfiles, promotedHeads);
-    const dmaState = sim.dma.buildQueue(directory, sessions);
-    const routingState = sim.routing.buildRoutingTable(directory, promotedHeads, sessions);
-    const speculativeState = sim.speculative.buildTrace(sessions);
-    const timeline = sim.timeline.buildEvents(sessions, directory, dmaState, routingState, speculativeState, promotedHeads.map((head) => head.id));
+    const sharedMetrics = sim.residency.computeSharedPrefixMetrics(directory);
+    const dma = sim.dma.buildQueue(directory, sessions);
+    const routing = sim.routing.buildRoutingTable(directory, promotedHeads, sessions);
+    const speculative = sim.speculative.buildTrace(sessions);
+    const compression = sim.compression.build(directory, dma);
+    const tierState = sim.tiers.build(directory, routing, compression);
     const benchmarkComparison = sim.benchmark.computeRuntimeBenchmark({
       model,
       policy: sim.state,
       directory,
-      routing: routingState,
+      routing,
       promotedHeads,
     });
     const evictionComparison = sim.eviction.computeComparison(directory.entries, {
-      promotions: dmaState.descriptors.length,
-      misses: routingState.totalMisses,
-      latency: routingState.averageLatency,
-      dmaBytes: dmaState.totalBytes,
+      promotions: dma.descriptors.length,
+      misses: routing.totalMisses,
+      latency: routing.averageLatency,
+      dmaBytes: dma.totalBytes,
     });
-    const sharedMetrics = sim.residency.computeSharedPrefixMetrics(directory);
-    const architectureState = buildArchitectureState(directory, dmaState, routingState);
+    const mockSnapshot = {
+      model,
+      sessions,
+      directory,
+      routing,
+      dma,
+      speculative,
+      sharedMetrics,
+      tierState,
+      compression,
+      evictionComparison,
+    };
+    const partitions = sim.orchestrator.buildPartitions(mockSnapshot);
+    const fragmentation = sim.fragmentation.build(directory, partitions);
+    const orchestrator = sim.orchestrator.build({
+      ...mockSnapshot,
+      fragmentation,
+    });
+    const timeline = sim.timeline.buildEvents(sessions, directory, dma, routing, speculative, promotedHeads.map((head) => head.id));
+    const architectureState = buildArchitectureState({
+      model,
+      sessions,
+      directory,
+      routing,
+      dma,
+      orchestrator,
+    });
+    const telemetry = sim.telemetry.build({
+      sessions,
+      tierState,
+      routing,
+      dma,
+      orchestrator,
+      speculative,
+      sharedMetrics,
+      fragmentation,
+      compression,
+    });
+    const metricsSummary = sim.metrics.summarize(orchestrator, tierState, telemetry);
 
     sim.memory.lastRun = {
       model,
@@ -541,36 +795,58 @@
       headProfiles,
       promotedHeads,
       directory,
-      dma: dmaState,
-      routing: routingState,
-      speculative: speculativeState,
-      timeline,
+      sharedMetrics,
+      dma,
+      routing,
+      speculative,
+      compression,
+      tierState,
       benchmarkComparison,
       evictionComparison,
-      sharedMetrics,
+      partitions,
+      fragmentation,
+      orchestrator,
+      timeline,
       architectureState,
+      telemetry,
+      metricsSummary,
+      workload: sim.workloads.getActiveWorkload(),
     };
     sim.memory.timelineCursor = Math.min(sim.memory.timelineCursor, Math.max(0, timeline.length - 1));
 
     renderHeadProfiles(headProfiles);
     renderHeatmap(headProfiles, layerBuckets);
     renderEfficiency(model, promotedHeads);
+    renderOrchestratorState(orchestrator);
+    renderExecutionWindows(orchestrator);
+    renderPartitions(partitions);
     renderTimeline(timeline);
-    renderDma(dmaState);
-    renderRouting(routingState);
+    renderDma(dma);
+    renderRouting(routing, tierState);
     renderSharedPrefix(sharedMetrics, sessions);
     renderDirectory(directory);
-    renderSpeculative(speculativeState);
+    renderSpeculative(speculative);
+    renderTierPanel(tierState);
+    renderCompressionPanel(compression);
+    renderFragmentation(fragmentation);
     renderArchitecture(architectureState);
+    renderMicroarchitecture(sim.memory.lastRun);
+    renderTelemetry(telemetry, metricsSummary);
     renderBenchmarkTable(evictionComparison, "evictionComparison");
     renderBenchmarkTable(benchmarkComparison, "benchmarkTable");
-    updateSummary(sharedMetrics, routingState, dmaState, evictionComparison, benchmarkComparison);
+    updateSummary(sim.memory.lastRun);
   }
 
   function applyPreset(next) {
     Object.assign(sim.state, next);
     sim.memory.headEligibilityOverrides = [];
     sim.ensureHeadEligibility();
+    syncControlValues();
+    runSimulation();
+  }
+
+  function replayWorkload() {
+    sim.workloads.applyPresetToState();
     syncControlValues();
     runSimulation();
   }
@@ -607,15 +883,23 @@
       }
       input.addEventListener("change", () => {
         sim.state[id] = id === "bytesPerElement" || id === "timelineSpeed" ? Number(input.value) : input.value;
+        if (id === "workloadPreset") {
+          sim.workloads.applyPresetToState();
+        }
         runSimulation();
       });
     });
 
     document.getElementById("rerun").addEventListener("click", runSimulation);
+    document.getElementById("replayWorkload").addEventListener("click", replayWorkload);
     document.getElementById("presetConservative").addEventListener("click", () => {
       applyPreset({
         promotionGranularity: "per-head",
         evictionPolicy: "refcount-protected",
+        executionPolicy: "tenant-fairness-optimized",
+        partitionPolicy: "static-equal-partition",
+        compressionMode: "uncompressed-sram",
+        compactionMode: "enabled",
         promptLength: 18,
         decodeSteps: 12,
         tenantCount: 3,
@@ -629,12 +913,19 @@
         dmaSlots: 2,
         draftTokens: 1,
         draftAcceptRate: 0.74,
+        executionWindowDuration: 7,
+        pinningDuration: 5,
+        sharedPoolPercent: 18,
       });
     });
     document.getElementById("presetAggressive").addEventListener("click", () => {
       applyPreset({
         promotionGranularity: "per-head-layer",
         evictionPolicy: "pinned-shared-prefix",
+        executionPolicy: "aggressive-promotion",
+        partitionPolicy: "shared-prefix-reserved-pool",
+        compressionMode: "quantized-hbm",
+        compactionMode: "enabled",
         promptLength: 24,
         decodeSteps: 20,
         tenantCount: 6,
@@ -648,27 +939,33 @@
         dmaSlots: 4,
         draftTokens: 3,
         draftAcceptRate: 0.62,
+        executionWindowDuration: 10,
+        pinningDuration: 7,
+        sharedPoolPercent: 28,
       });
     });
-    document.getElementById("playTimeline").addEventListener("click", () => sim.timeline.play(() => {
-      renderTimeline(sim.memory.lastRun.timeline);
-      renderDma(sim.memory.lastRun.dma);
-      renderArchitecture(sim.memory.lastRun.architectureState);
-    }));
+    document.getElementById("playTimeline").addEventListener("click", () => sim.timeline.play(rerenderTimelineLinkedViews));
     document.getElementById("pauseTimeline").addEventListener("click", () => {
       sim.timeline.pause();
-      renderTimeline(sim.memory.lastRun.timeline);
-      renderDma(sim.memory.lastRun.dma);
+      rerenderTimelineLinkedViews();
     });
-    document.getElementById("stepTimeline").addEventListener("click", () => sim.timeline.step(() => {
-      renderTimeline(sim.memory.lastRun.timeline);
-      renderDma(sim.memory.lastRun.dma);
-      renderArchitecture(sim.memory.lastRun.architectureState);
-    }));
+    document.getElementById("stepTimeline").addEventListener("click", () => sim.timeline.step(rerenderTimelineLinkedViews));
     document.getElementById("addSession").addEventListener("click", addSession);
     document.getElementById("attachShared").addEventListener("click", () => attachSharedPrefix(true));
     document.getElementById("detachShared").addEventListener("click", () => attachSharedPrefix(false));
     document.getElementById("generateSnapshot").addEventListener("click", () => sim.exporter.exportSnapshot());
+
+    [
+      ["eventSramExhaustion", "sram-exhaustion"],
+      ["eventDmaCongestion", "dma-congestion"],
+      ["eventSpeculativeCollapse", "speculative-collapse"],
+      ["eventEvictionStorm", "eviction-storm"],
+      ["eventTenantBurst", "tenant-burst"],
+      ["eventPrefixInvalidation", "prefix-invalidation"],
+      ["eventBandwidthSaturation", "bandwidth-saturation"],
+    ].forEach(([id, eventName]) => {
+      document.getElementById(id).addEventListener("click", () => injectStressEvent(eventName));
+    });
   }
 
   sim.ensureHeadEligibility();

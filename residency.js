@@ -3,6 +3,9 @@
 
   sim.residency = {
     buildDirectory(sessions, headProfiles, promotedHeads) {
+      const runtimePolicy = sim.memory.policyRuntime || {};
+      const effectiveThreshold = runtimePolicy.promotionThreshold || sim.state.sinkThreshold;
+      const effectiveBudget = Math.max(1, sim.state.sramBudget - (sim.memory.stressEvents["sram-exhaustion"] || 0) * 2);
       const allEntries = [];
       const sharedUsers = sessions.filter((session) => session.attachedSharedPrefix).length;
 
@@ -31,12 +34,12 @@
       });
 
       deduped.forEach((entry, index) => {
-        if (entry.shared || entry.sinkScore >= sim.state.sinkThreshold || index < sim.state.sramBudget) {
+        if (entry.shared || entry.sinkScore >= effectiveThreshold || index < effectiveBudget) {
           entry.tier = "SRAM";
         }
       });
 
-      const evictIds = new Set(sim.eviction.chooseEvictions(deduped, sim.state.sramBudget, sim.state.evictionPolicy));
+      const evictIds = new Set(sim.eviction.chooseEvictions(deduped, effectiveBudget, sim.state.evictionPolicy));
       deduped.forEach((entry) => {
         if (evictIds.has(entry.entryId)) {
           entry.evicting = true;

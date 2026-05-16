@@ -23,6 +23,11 @@
     },
 
     buildQueue(directory, sessions) {
+      const runtimePolicy = sim.memory.policyRuntime || {};
+      const congestion = sim.memory.stressEvents["dma-congestion"] || 0;
+      const saturation = sim.memory.stressEvents["bandwidth-saturation"] || 0;
+      const effectiveSlots = Math.max(1, (runtimePolicy.dmaSlots || sim.state.dmaSlots) - congestion);
+      const effectiveBandwidth = Math.max(8, sim.state.dmaBandwidth / (1 + congestion * 0.28 + saturation * 0.22));
       const descriptors = [];
       let clock = 0;
 
@@ -44,6 +49,11 @@
           });
       });
 
+      descriptors.forEach((descriptor) => {
+        descriptor.latency = Math.max(1, Math.ceil(descriptor.bytes / (effectiveBandwidth * 256)));
+        descriptor.completionTime = descriptor.enqueueTime + descriptor.latency;
+      });
+
       descriptors.sort((a, b) => a.enqueueTime - b.enqueueTime);
       const active = [];
       const queued = [];
@@ -57,7 +67,7 @@
           cursor += 1;
         }
 
-        while (active.length < sim.state.dmaSlots && queued.length > 0) {
+        while (active.length < effectiveSlots && queued.length > 0) {
           const next = queued.shift();
           next.startTime = time;
           next.completionTime = Math.max(next.completionTime, time + next.latency);
@@ -83,7 +93,7 @@
       const totalBytes = descriptors.reduce((sum, descriptor) => sum + descriptor.bytes, 0);
       const utilization = Math.min(
         100,
-        (totalBytes / Math.max(1, time * sim.state.dmaBandwidth * 256)) * 100 * sim.state.dmaSlots
+        (totalBytes / Math.max(1, time * effectiveBandwidth * 256)) * 100 * effectiveSlots
       );
 
       return {
@@ -93,6 +103,8 @@
         completed: completed.slice(-12).reverse(),
         totalBytes,
         utilization,
+        effectiveSlots,
+        effectiveBandwidth,
       };
     },
   };

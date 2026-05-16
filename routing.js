@@ -4,6 +4,9 @@
   sim.routing = {
     buildRoutingTable(directory, promotedHeads, sessions) {
       const promotedHeadIds = promotedHeads.map((head) => head.id);
+      const exhaustion = sim.memory.stressEvents["sram-exhaustion"] || 0;
+      const burst = sim.memory.stressEvents["tenant-burst"] || 0;
+      const invalidation = sim.memory.stressEvents["prefix-invalidation"] || 0;
       const rows = [];
       let totalReadsAvoided = 0;
       let totalLatency = 0;
@@ -18,7 +21,8 @@
               (entry.sessionId === session.sessionId || (entry.shared && session.attachedSharedPrefix))
           );
           const sharedHit = activeEntries.some((entry) => entry.shared);
-          const sramHits = promotedHeadIds.filter((headId) => (sharedHit ? true : headId % 2 === step % 2)).length;
+          const rawHits = promotedHeadIds.filter((headId) => (sharedHit ? true : headId % 2 === step % 2)).length;
+          const sramHits = Math.max(0, rawHits - exhaustion - Math.floor((burst + invalidation) / 2));
           const misses = Math.max(0, requestedHeads.length - sramHits);
           const layersInRange = sim.getSelectedLayerCount(sim.state);
           const mode = sramHits === 0 ? "HBM" : misses === 0 ? "SRAM" : "Mixed";

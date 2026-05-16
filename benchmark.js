@@ -5,6 +5,7 @@
     computeRuntimeBenchmark(context) {
       const model = context.model;
       const policy = context.policy;
+      const runtimePolicy = sim.memory.policyRuntime || {};
       const promotedHeadCount = Math.max(1, context.promotedHeads.length);
       const totalPromotedEntries = context.directory.entries.filter((entry) => entry.tier === "SRAM").length;
       const selectedLayers = sim.getSelectedLayerCount(policy);
@@ -26,11 +27,11 @@
         const hbmReadsAvoided =
           row.mode === "none"
             ? 0
-            : context.routing.totalReadsAvoided * (row.mode === "whole-token" ? 0.9 + index * 0.03 : row.mode === "per-head" ? 0.82 : 0.78) * Math.max(0.18, coverage);
+            : context.routing.totalReadsAvoided * (row.mode === "whole-token" ? 0.9 + index * 0.03 : row.mode === "per-head" ? 0.82 : 0.78) * Math.max(0.18, coverage) * (runtimePolicy.promotionWeight || 1);
         const latencyCost =
           row.mode === "none"
             ? context.routing.averageLatency * 1.12
-            : context.routing.averageLatency * (row.mode === "whole-token" ? 0.88 : row.mode === "per-head" ? 0.79 : 0.74);
+            : context.routing.averageLatency * (row.mode === "whole-token" ? 0.88 : row.mode === "per-head" ? 0.79 : 0.74) * (runtimePolicy.fairnessWeight ? 1 / Math.max(0.75, runtimePolicy.fairnessWeight) : 1);
         const speedup = row.mode === "none" ? 1 : (context.routing.averageLatency * 1.12) / Math.max(1, latencyCost);
         const budgetPercent =
           row.mode === "none"

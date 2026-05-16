@@ -4,6 +4,11 @@
   sim.state = {
     promotionGranularity: "per-head-layer",
     evictionPolicy: "sink-score-aware",
+    partitionPolicy: "shared-prefix-reserved-pool",
+    executionPolicy: "latency-optimized",
+    workloadPreset: "multi-tenant-enterprise-serving",
+    compressionMode: "quantized-hbm",
+    compactionMode: "enabled",
     promptLength: 20,
     decodeSteps: 16,
     tenantCount: 4,
@@ -28,6 +33,9 @@
     dmaSlots: 3,
     draftTokens: 2,
     draftAcceptRate: 0.68,
+    executionWindowDuration: 8,
+    pinningDuration: 5,
+    sharedPoolPercent: 24,
     timelineSpeed: 1,
     directorySort: "score",
     directoryFilter: "all",
@@ -57,11 +65,19 @@
     "dmaSlots",
     "draftTokens",
     "draftAcceptRate",
+    "executionWindowDuration",
+    "pinningDuration",
+    "sharedPoolPercent",
   ];
 
   sim.selectIds = [
     "promotionGranularity",
     "evictionPolicy",
+    "partitionPolicy",
+    "executionPolicy",
+    "workloadPreset",
+    "compressionMode",
+    "compactionMode",
     "bytesPerElement",
     "timelineSpeed",
     "directorySort",
@@ -110,6 +126,8 @@
     headEligibilityOverrides: [],
     sessionOverrides: {},
     lastRun: null,
+    telemetryHistory: [],
+    stressEvents: {},
   };
 
   sim.utils = {
@@ -130,6 +148,12 @@
     },
     clamp(value, min, max) {
       return Math.max(min, Math.min(max, value));
+    },
+    average(values) {
+      if (!values.length) {
+        return 0;
+      }
+      return values.reduce((sum, value) => sum + value, 0) / values.length;
     },
   };
 
@@ -269,6 +293,9 @@
         attachedSharedPrefix,
         ragAttached,
         longPrefixLength: sim.state.sharedPrefixLength + 2 + (index % 3),
+        priority: 1 + (index % 3),
+        decodeRate: 1 + ((index + 1) % 4),
+        sinkDensity: 0.5 + (index % 4) * 0.1,
       };
     });
     return sessions;
