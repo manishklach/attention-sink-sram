@@ -1,9 +1,17 @@
 const state = {
+  promotionGranularity: "whole-token",
   promptLength: 18,
   decodeSteps: 18,
-  headCount: 5,
   tenantCount: 4,
   sharedPrefixLength: 4,
+  layers: 80,
+  kvHeads: 8,
+  headDim: 128,
+  bytesPerElement: 2,
+  promotedHeads: 3,
+  promotedLayerStart: 16,
+  promotedLayerEnd: 32,
+  layerBoostMultiplier: 1.6,
   sinkThreshold: 0.56,
   evictionThreshold: 0.28,
   emaAlpha: 0.72,
@@ -12,18 +20,23 @@ const state = {
   sinkStrength: 0.74,
   hbmLatency: 18,
   sramLatency: 3,
-  draftAcceptance: 0.45,
-  verifierReuse: 0.55,
 };
 
 let lastRun = null;
+let headEligibilityOverrides = [];
 
-const ids = [
+const rangeIds = [
   "promptLength",
   "decodeSteps",
-  "headCount",
   "tenantCount",
   "sharedPrefixLength",
+  "layers",
+  "kvHeads",
+  "headDim",
+  "promotedHeads",
+  "promotedLayerStart",
+  "promotedLayerEnd",
+  "layerBoostMultiplier",
   "sinkThreshold",
   "evictionThreshold",
   "emaAlpha",
@@ -32,38 +45,165 @@ const ids = [
   "sinkStrength",
   "hbmLatency",
   "sramLatency",
-  "draftAcceptance",
-  "verifierReuse",
 ];
 
+const selectIds = ["promotionGranularity", "bytesPerElement"];
+
 const tokenKinds = ["BOS", "SYS", "INST", "ANCHOR"];
-const headProfiles = ["sink", "local", "retrieval"];
+const profileSequence = [
+  "sink-heavy",
+  "retrieval-biased",
+  "local",
+  "recency-biased",
+  "diffuse",
+];
+
+const profileConfig = {
+  "sink-heavy": {
+    defaultEligible: true,
+    baseContribution: 1.0,
+    description: "Persistent anchor and sink behavior across many decode steps.",
+  },
+  "retrieval-biased": {
+    defaultEligible: true,
+    baseContribution: 0.82,
+    description: "Useful for globally reused context, but not as concentrated as sink-heavy heads.",
+  },
+  local: {
+    defaultEligible: false,
+    baseContribution: 0.52,
+    description: "Reads nearby tokens; often better served by recency than SRAM pinning.",
+  },
+  "recency-biased": {
+    defaultEligible: false,
+    baseContribution: 0.6,
+    description: "Favors the latest tokens and typically offers lower SRAM ROI than sink-heavy heads.",
+  },
+  diffuse: {
+    defaultEligible: false,
+    baseContribution: 0.34,
+    description: "Spreads attention broadly and usually has the weakest slice-promotion case.",
+  },
+};
+
+// Small formatting helpers keep the UI readable while the simulator recomputes frequently.
+function formatNumber(value, decimals = 0) {
+  return Number(value).toLocaleString(undefined, {
+    maximumFractionDigits: decimals,
+    minimumFractionDigits: decimals,
+  });
+}
+
+function bytesToHuman(bytes) {
+  if (bytes >= 1024 * 1024) {
+    return `${formatNumber(bytes / (1024 * 1024), 2)} MB`;
+  }
+  if (bytes >= 1024) {
+    return `${formatNumber(bytes / 1024, 1)} KB`;
+  }
+  return `${formatNumber(bytes, 0)} B`;
+}
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function normalizeRow(row) {
+  const sum = row.reduce((acc, value) => acc + value, 0);
+  if (sum === 0) {
+    return row.map(() => 0);
+  }
+  return row.map((value) => value / sum);
+}
+
+function ensureLayerRange() {
+  if (state.promotedLayerStart > state.promotedLayerEnd) {
+    const temp = state.promotedLayerStart;
+    state.promotedLayerStart = state.promotedLayerEnd;
+    state.promotedLayerEnd = temp;
+  }
+  if (state.promotedLayerEnd >= state.layers) {
+    state.promotedLayerEnd = state.layers - 1;
+  }
+  if (state.promotedLayerStart >= state.layers) {
+    state.promotedLayerStart = Math.max(0, state.layers - 1);
+  }
+  if (state.sharedPrefixLength > state.promptLength) {
+    state.sharedPrefixLength = state.promptLength;
+  }
+  if (state.promotedHeads > state.kvHeads) {
+    state.promotedHeads = state.kvHeads;
+  }
+}
+
+function syncControlValues() {
+  document.getElementById("promotedHeads").max = String(state.kvHeads);
+  document.getElementById("promotedLayerStart").max = String(Math.max(0, state.layers - 1));
+  document.getElementById("promotedLayerEnd").max = String(Math.max(0, state.layers - 1));
+  document.getElementById("sharedPrefixLength").max = String(state.promptLength);
+
+  rangeIds.forEach((id) => {
+    const input = document.getElementById(id);
+    const value = document.getElementById(`${id}Value`);
+    input.value = state[id];
+    value.textContent = state[id];
+    if (id === "layerBoostMultiplier" || id === "sinkThreshold" || id === "evictionThreshold" || id === "emaAlpha") {
+      value.textContent = Number(state[id]).toFixed(2).replace(/0$/, "").replace(/\.$/, "");
+    }
+  });
+
+  selectIds.forEach((id) => {
+    document.getElementById(id).value = state[id];
+  });
+}
+
+function ensureHeadEligibility() {
+  if (headEligibilityOverrides.length !== state.kvHeads) {
+    headEligibilityOverrides = Array.from({ length: state.kvHeads }, (_, index) => {
+      const profile = profileSequence[index % profileSequence.length];
+      return profileConfig[profile].defaultEligible;
+    });
+  }
+}
 
 function bindControls() {
-  ids.forEach((id) => {
+  rangeIds.forEach((id) => {
     const input = document.getElementById(id);
     const value = document.getElementById(`${id}Value`);
     input.addEventListener("input", () => {
       state[id] = Number(input.value);
-      value.textContent = input.value;
-      if (id === "promptLength" && state.sharedPrefixLength > state.promptLength) {
-        state.sharedPrefixLength = state.promptLength;
-        document.getElementById("sharedPrefixLength").value = state.sharedPrefixLength;
-        document.getElementById("sharedPrefixLengthValue").textContent = state.sharedPrefixLength;
-      }
+      ensureLayerRange();
+      ensureHeadEligibility();
+      syncControlValues();
+      run();
+    });
+  });
+
+  selectIds.forEach((id) => {
+    const input = document.getElementById(id);
+    input.addEventListener("change", () => {
+      state[id] = id === "bytesPerElement" ? Number(input.value) : input.value;
       run();
     });
   });
 
   document.getElementById("rerun").addEventListener("click", run);
   document.getElementById("presetConservative").addEventListener("click", () => {
-    setPreset({
+    applyPreset({
+      promotionGranularity: "whole-token",
       promptLength: 18,
       decodeSteps: 16,
-      headCount: 4,
       tenantCount: 3,
       sharedPrefixLength: 4,
-      sinkThreshold: 0.66,
+      layers: 80,
+      kvHeads: 8,
+      headDim: 128,
+      bytesPerElement: 2,
+      promotedHeads: 2,
+      promotedLayerStart: 20,
+      promotedLayerEnd: 28,
+      layerBoostMultiplier: 1.3,
+      sinkThreshold: 0.64,
       evictionThreshold: 0.34,
       emaAlpha: 0.78,
       dwellSteps: 4,
@@ -71,98 +211,64 @@ function bindControls() {
       sinkStrength: 0.62,
       hbmLatency: 18,
       sramLatency: 3,
-      draftAcceptance: 0.28,
-      verifierReuse: 0.38,
     });
   });
+
   document.getElementById("presetAggressive").addEventListener("click", () => {
-    setPreset({
-      promptLength: 22,
-      decodeSteps: 22,
-      headCount: 6,
+    applyPreset({
+      promotionGranularity: "per-head-layer",
+      promptLength: 24,
+      decodeSteps: 24,
       tenantCount: 8,
       sharedPrefixLength: 5,
-      sinkThreshold: 0.44,
-      evictionThreshold: 0.2,
-      emaAlpha: 0.6,
+      layers: 80,
+      kvHeads: 8,
+      headDim: 128,
+      bytesPerElement: 2,
+      promotedHeads: 3,
+      promotedLayerStart: 16,
+      promotedLayerEnd: 32,
+      layerBoostMultiplier: 1.8,
+      sinkThreshold: 0.48,
+      evictionThreshold: 0.22,
+      emaAlpha: 0.66,
       dwellSteps: 2,
-      sramBudget: 7,
+      sramBudget: 8,
       sinkStrength: 0.84,
       hbmLatency: 20,
       sramLatency: 2,
-      draftAcceptance: 0.62,
-      verifierReuse: 0.74,
     });
   });
-  document.getElementById("exportJson").addEventListener("click", exportJson);
-  document.getElementById("exportPatentFigure").addEventListener("click", exportPatentFigure);
+
+  document.getElementById("exportJson").addEventListener("click", exportTrace);
 }
 
-function setPreset(next) {
-  Object.entries(next).forEach(([key, value]) => {
-    state[key] = value;
-    document.getElementById(key).value = value;
-    document.getElementById(`${key}Value`).textContent = value;
-  });
+function applyPreset(next) {
+  Object.assign(state, next);
+  ensureLayerRange();
+  headEligibilityOverrides = [];
+  ensureHeadEligibility();
+  syncControlValues();
   run();
 }
 
 function generateTokens(promptLength, sharedPrefixLength) {
   return Array.from({ length: promptLength }, (_, index) => {
     if (index < tokenKinds.length) {
-      return { id: index, label: tokenKinds[index], kind: "anchor", shared: index < sharedPrefixLength };
+      return {
+        id: index,
+        label: tokenKinds[index],
+        kind: "anchor",
+        shared: index < sharedPrefixLength,
+      };
     }
-    return { id: index, label: `T${index}`, kind: "normal", shared: index < sharedPrefixLength };
+    return {
+      id: index,
+      label: `T${index}`,
+      kind: "normal",
+      shared: index < sharedPrefixLength,
+    };
   });
-}
-
-function generateHeadConfigs(headCount) {
-  return Array.from({ length: headCount }, (_, index) => {
-    const profile = headProfiles[index % headProfiles.length];
-    const bias = profile === "sink" ? 1.15 : profile === "local" ? 0.95 : 0.82;
-    return { id: index, label: `H${index}`, profile, bias };
-  });
-}
-
-function clamp(value, min, max) {
-  return Math.max(min, Math.min(max, value));
-}
-
-function baseWeightForToken(index, promptLength, sinkStrength, profile, step) {
-  const recentWindow = index >= promptLength - 4 ? 0.2 : 0;
-  const wave = (((step + 1) * (index + 5)) % 9) / 140;
-
-  if (profile === "sink") {
-    if (index === 0) return sinkStrength + 0.18 + wave;
-    if (index === 1) return sinkStrength + 0.12 + wave;
-    if (index === 2) return sinkStrength + 0.08 + wave;
-    if (index === 3) return sinkStrength + 0.02 + wave;
-    return clamp(0.14 + wave - index / (promptLength * 5), 0.05, 0.4);
-  }
-
-  if (profile === "local") {
-    const distance = (promptLength - 1 - index) / Math.max(promptLength - 1, 1);
-    return clamp(0.16 + recentWindow + distance * 0.18 + wave, 0.04, 0.5);
-  }
-
-  const distancePenalty = index / Math.max(promptLength - 1, 1);
-  return clamp(0.28 - distancePenalty * 0.12 + recentWindow * 0.4 + wave, 0.06, 0.42);
-}
-
-function normalizeRow(row) {
-  const sum = row.reduce((acc, value) => acc + value, 0);
-  return row.map((value) => value / sum);
-}
-
-function generateAttentionByHead(tokens, heads, decodeSteps, sinkStrength) {
-  return Array.from({ length: decodeSteps }, (_, step) =>
-    heads.map((head) => {
-      const row = tokens.map((token, index) =>
-        baseWeightForToken(index, tokens.length, sinkStrength, head.profile, step) * head.bias,
-      );
-      return normalizeRow(row);
-    }),
-  );
 }
 
 function generateTenantWeights(tokens, tenantCount, sharedPrefixLength) {
@@ -170,15 +276,151 @@ function generateTenantWeights(tokens, tenantCount, sharedPrefixLength) {
     const focus = sharedPrefixLength + ((tenantIndex * 3) % Math.max(tokens.length - sharedPrefixLength, 1));
     return tokens.map((token, tokenIndex) => {
       if (tokenIndex < sharedPrefixLength) {
-        return 1;
+        return 1.2;
       }
       const distance = Math.abs(tokenIndex - focus);
-      return clamp(0.85 - distance * 0.08, 0.18, 0.9);
+      return clamp(0.88 - distance * 0.08, 0.18, 0.9);
     });
   });
 }
 
-function aggregateAttention(attentionByHead, heads, tenantWeights) {
+function computeLayerBuckets(layers, bucketCount = 8) {
+  const bucketSize = Math.max(1, Math.ceil(layers / bucketCount));
+  return Array.from({ length: bucketCount }, (_, index) => {
+    const start = index * bucketSize;
+    const end = Math.min(layers - 1, start + bucketSize - 1);
+    return {
+      id: index,
+      start,
+      end,
+      label: `${start}-${end}`,
+    };
+  }).filter((bucket) => bucket.start < layers);
+}
+
+function layerOverlapCount(aStart, aEnd, bStart, bEnd) {
+  const start = Math.max(aStart, bStart);
+  const end = Math.min(aEnd, bEnd);
+  return Math.max(0, end - start + 1);
+}
+
+function computeLayerWeight(bucket, selectedStart, selectedEnd, boostMultiplier, granularity) {
+  const overlap = layerOverlapCount(bucket.start, bucket.end, selectedStart, selectedEnd);
+  if (granularity === "per-head-layer") {
+    return overlap > 0 ? boostMultiplier : 0;
+  }
+  return overlap > 0 ? boostMultiplier : 1;
+}
+
+function computeHeadProfiles(tokens, layerBuckets, tenantWeights) {
+  ensureHeadEligibility();
+
+  const sharedPressure = tenantWeights.reduce(
+    (acc, row) => acc + row.slice(0, state.sharedPrefixLength).reduce((sum, value) => sum + value, 0),
+    0,
+  ) / Math.max(tenantWeights.length * Math.max(state.sharedPrefixLength, 1), 1);
+
+  return Array.from({ length: state.kvHeads }, (_, index) => {
+    const profile = profileSequence[index % profileSequence.length];
+    const config = profileConfig[profile];
+    const contributionSeed = config.baseContribution * (1 + (sharedPressure - 1) * 0.12);
+
+    const layerIntensities = layerBuckets.map((bucket, bucketIndex) => {
+      const normalizedStart = bucket.start / Math.max(state.layers - 1, 1);
+      const normalizedMid = (bucket.start + bucket.end) / 2 / Math.max(state.layers - 1, 1);
+
+      let profileBias = 0.4;
+      if (profile === "sink-heavy") {
+        profileBias = 0.82 + (1 - normalizedStart) * 0.24;
+      } else if (profile === "retrieval-biased") {
+        profileBias = 0.64 + Math.sin((bucketIndex + 1) / layerBuckets.length * Math.PI) * 0.2;
+      } else if (profile === "local") {
+        profileBias = 0.42 + (1 - normalizedMid) * 0.18;
+      } else if (profile === "recency-biased") {
+        profileBias = 0.46 + normalizedMid * 0.2;
+      } else if (profile === "diffuse") {
+        profileBias = 0.34 + ((bucketIndex % 2) * 0.04);
+      }
+
+      const layerWeight = computeLayerWeight(
+        bucket,
+        state.promotedLayerStart,
+        state.promotedLayerEnd,
+        state.layerBoostMultiplier,
+        state.promotionGranularity,
+      );
+
+      return {
+        bucketId: bucket.id,
+        intensity: contributionSeed * profileBias * (layerWeight || 1),
+        bucket,
+        layerWeight,
+      };
+    });
+
+    const contribution =
+      layerIntensities.reduce((acc, item) => acc + item.intensity, 0) /
+      Math.max(layerIntensities.length, 1);
+
+    return {
+      id: index,
+      label: `H${index}`,
+      profile,
+      description: config.description,
+      sinkScoreContribution: contribution,
+      eligible: headEligibilityOverrides[index],
+      defaultEligible: config.defaultEligible,
+      layerIntensities,
+      promoted: false,
+    };
+  });
+}
+
+// This is a deterministic stand-in for learned attention behavior, not a real kernel execution path.
+function baseWeightForToken(index, promptLength, sinkStrength, profile, step) {
+  const recentWindow = index >= promptLength - 4 ? 0.2 : 0;
+  const wave = (((step + 1) * (index + 5)) % 9) / 140;
+
+  if (profile === "sink-heavy") {
+    if (index === 0) return sinkStrength + 0.18 + wave;
+    if (index === 1) return sinkStrength + 0.12 + wave;
+    if (index === 2) return sinkStrength + 0.08 + wave;
+    if (index === 3) return sinkStrength + 0.02 + wave;
+    return clamp(0.14 + wave - index / (promptLength * 5), 0.05, 0.4);
+  }
+
+  if (profile === "retrieval-biased") {
+    const anchorLift = index < 6 ? 0.08 : 0;
+    return clamp(0.24 + anchorLift + wave - index / (promptLength * 6), 0.06, 0.44);
+  }
+
+  if (profile === "local") {
+    const distance = (promptLength - 1 - index) / Math.max(promptLength - 1, 1);
+    return clamp(0.16 + recentWindow + distance * 0.18 + wave, 0.04, 0.5);
+  }
+
+  if (profile === "recency-biased") {
+    const distance = (promptLength - 1 - index) / Math.max(promptLength - 1, 1);
+    return clamp(0.12 + recentWindow * 1.35 + distance * 0.1 + wave, 0.03, 0.55);
+  }
+
+  const distancePenalty = index / Math.max(promptLength - 1, 1);
+  return clamp(0.2 - distancePenalty * 0.08 + recentWindow * 0.18 + wave, 0.05, 0.34);
+}
+
+function generateAttentionByHead(tokens, headProfiles, decodeSteps) {
+  return Array.from({ length: decodeSteps }, (_, step) =>
+    headProfiles.map((head) => {
+      const row = tokens.map((token, index) =>
+        baseWeightForToken(index, tokens.length, state.sinkStrength, head.profile, step) *
+        (0.88 + head.sinkScoreContribution * 0.18),
+      );
+      return normalizeRow(row);
+    }),
+  );
+}
+
+function aggregateAttention(attentionByHead, headProfiles, tenantWeights) {
   return attentionByHead.map((stepRows) => {
     const tokenCount = stepRows[0]?.length ?? 0;
     const totals = Array.from({ length: tokenCount }, () => 0);
@@ -186,7 +428,7 @@ function aggregateAttention(attentionByHead, heads, tenantWeights) {
     tenantWeights.forEach((tenantRow) => {
       stepRows.forEach((row, headIndex) => {
         row.forEach((value, tokenIndex) => {
-          totals[tokenIndex] += value * heads[headIndex].bias * tenantRow[tokenIndex];
+          totals[tokenIndex] += value * headProfiles[headIndex].sinkScoreContribution * tenantRow[tokenIndex];
         });
       });
     });
@@ -195,34 +437,18 @@ function aggregateAttention(attentionByHead, heads, tenantWeights) {
   });
 }
 
-function computeStaticScores(aggregateRows) {
-  const tokenCount = aggregateRows[0]?.length ?? 0;
-  const sums = Array.from({ length: tokenCount }, () => 0);
-  aggregateRows.forEach((row) => {
-    row.forEach((value, index) => {
-      sums[index] += value;
-    });
-  });
-  const peak = Math.max(...sums, 1);
-  return sums.map((value) => value / peak);
-}
-
-function simulateDynamicController(tokens, heads, attentionByHead, tenantWeights) {
+function simulateDynamicController(tokens, aggregateRows) {
   const slotMap = new Map();
   const emaScores = Array.from({ length: tokens.length }, () => 0);
   const coldCounters = Array.from({ length: tokens.length }, () => 0);
-  const timeline = Array.from({ length: tokens.length }, () => []);
   const promotions = Array.from({ length: tokens.length }, () => 0);
   const evictions = Array.from({ length: tokens.length }, () => 0);
   const trace = [];
-
-  const aggregateRows = aggregateAttention(attentionByHead, heads, tenantWeights);
 
   aggregateRows.forEach((normalized, stepIndex) => {
     normalized.forEach((value, tokenIndex) => {
       emaScores[tokenIndex] =
         state.emaAlpha * emaScores[tokenIndex] + (1 - state.emaAlpha) * value;
-      timeline[tokenIndex].push(emaScores[tokenIndex]);
     });
 
     const promoteCandidates = tokens
@@ -281,263 +507,382 @@ function simulateDynamicController(tokens, heads, attentionByHead, tenantWeights
       .sort((a, b) => b.value - a.value)
       .slice(0, Math.min(6, normalized.length));
 
-    let sramReads = 0;
-    let hbmReads = 0;
+    let promotedReadHits = 0;
     let sharedHits = 0;
     activeReads.forEach(({ index }) => {
       if (slotMap.has(index)) {
-        sramReads += 1;
+        promotedReadHits += 1;
         if (tokens[index].shared) {
           sharedHits += 1;
         }
-      } else {
-        hbmReads += 1;
       }
     });
 
-    const baselineCost = activeReads.length * state.hbmLatency;
-    const actualCost = sramReads * state.sramLatency + hbmReads * state.hbmLatency;
-
     trace.push({
       step: stepIndex + 1,
-      aggregate: normalized,
       residentTokenIds: [...slotMap.keys()],
-      sramReads,
-      hbmReads,
+      promotedReadHits,
+      activeReadCount: activeReads.length,
       sharedHits,
-      baselineCost,
-      actualCost,
-      saved: baselineCost - actualCost,
       events,
     });
   });
 
-  const assignments = tokens.map((token, index) => ({
-    ...token,
-    sinkScore: timeline[index][timeline[index].length - 1] || 0,
-    tier: trace[trace.length - 1]?.residentTokenIds.includes(token.id) ? "SRAM" : "HBM",
-    promotions: promotions[index],
-    evictions: evictions[index],
-  }));
-
-  const readsAvoided = trace.reduce((acc, row) => acc + row.sramReads, 0);
-  const latencySaved = trace.reduce((acc, row) => acc + row.saved, 0);
-  const totalReads = trace.reduce((acc, row) => acc + row.sramReads + row.hbmReads, 0);
-  const sharedHits = trace.reduce((acc, row) => acc + row.sharedHits, 0);
-
   return {
-    assignments,
+    assignments: tokens.map((token, index) => ({
+      ...token,
+      sinkScore: emaScores[index],
+      tier: trace[trace.length - 1]?.residentTokenIds.includes(token.id) ? "SRAM" : "HBM",
+      promotions: promotions[index],
+      evictions: evictions[index],
+    })),
     trace,
-    timeline,
-    aggregateRows,
-    readsAvoided,
-    latencySaved,
-    sharedHits,
-    hitRate: totalReads ? readsAvoided / totalReads : 0,
+    readsAvoidedWholeToken: trace.reduce((acc, step) => acc + step.promotedReadHits, 0),
+    finalResidents: trace[trace.length - 1]?.residentTokenIds ?? [],
   };
 }
 
-function simulateBaseline(aggregateRows) {
-  const trace = aggregateRows.map((row, stepIndex) => {
-    const activeReads = row
-      .map((value, index) => ({ index, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, Math.min(6, row.length));
-    return {
-      step: stepIndex + 1,
-      sramReads: 0,
-      hbmReads: activeReads.length,
-      actualCost: activeReads.length * state.hbmLatency,
-    };
+// Full-token KV size is the baseline used for footprint-reduction and capacity-increase comparisons.
+function computeKvBytes(model) {
+  return 2 * model.layers * model.kvHeads * model.headDim * model.bytesPerElement;
+}
+
+function getSelectedLayerCount(policy) {
+  return Math.max(0, policy.promotedLayerEnd - policy.promotedLayerStart + 1);
+}
+
+function computePromotionBytes(model, policy, activePromotedHeads, granularity = policy.promotionGranularity) {
+  const selectedLayerCount = getSelectedLayerCount(policy);
+
+  if (granularity === "whole-token") {
+    return 2 * model.layers * model.kvHeads * model.headDim * model.bytesPerElement;
+  }
+
+  if (granularity === "per-head") {
+    return 2 * model.layers * activePromotedHeads * model.headDim * model.bytesPerElement;
+  }
+
+  return 2 * selectedLayerCount * activePromotedHeads * model.headDim * model.bytesPerElement;
+}
+
+function determinePromotedHeads(headProfiles, policy) {
+  const eligible = headProfiles
+    .filter((head) => head.eligible)
+    .sort((a, b) => b.sinkScoreContribution - a.sinkScoreContribution);
+
+  const selected = eligible.slice(0, Math.min(policy.promotedHeads, eligible.length));
+  const promotedIds = new Set(selected.map((head) => head.id));
+
+  headProfiles.forEach((head) => {
+    head.promoted = promotedIds.has(head.id);
   });
 
-  return {
-    latencyCost: trace.reduce((acc, row) => acc + row.actualCost, 0),
-    hitRate: 0,
-  };
+  return selected;
 }
 
-function simulateStaticPolicy(tokens, aggregateRows) {
-  const scores = computeStaticScores(aggregateRows);
-  const ranked = tokens
-    .map((token, index) => ({ tokenId: token.id, score: scores[index] }))
-    .filter((token) => token.score >= state.sinkThreshold)
-    .sort((a, b) => b.score - a.score)
-    .slice(0, state.sramBudget);
-  const resident = new Set(ranked.map((item) => item.tokenId));
-  const trace = aggregateRows.map((row, stepIndex) => {
-    const activeReads = row
-      .map((value, index) => ({ index, value }))
-      .sort((a, b) => b.value - a.value)
-      .slice(0, Math.min(6, row.length));
+function computeCoverageRatio(granularity, model, promotedHeadCount, selectedLayerCount) {
+  if (granularity === "whole-token") {
+    return 1;
+  }
 
-    let sramReads = 0;
-    let hbmReads = 0;
-    activeReads.forEach(({ index }) => {
-      if (resident.has(index)) {
-        sramReads += 1;
-      } else {
-        hbmReads += 1;
-      }
-    });
+  const headFraction = promotedHeadCount / Math.max(model.kvHeads, 1);
+  if (granularity === "per-head") {
+    return headFraction;
+  }
 
-    return {
-      step: stepIndex + 1,
-      sramReads,
-      hbmReads,
-      actualCost: sramReads * state.sramLatency + hbmReads * state.hbmLatency,
-    };
+  const layerFraction = selectedLayerCount / Math.max(model.layers, 1);
+  return headFraction * layerFraction;
+}
+
+function computeLatencyCost(totalReads, readsAvoided, coverageRatio, hbmLatency, sramLatency) {
+  return totalReads * hbmLatency - readsAvoided * coverageRatio * (hbmLatency - sramLatency);
+}
+
+// The benchmark panel compares policy families using the same deterministic workload and latency assumptions.
+function computeBenchmarkComparison(context) {
+  const {
+    model,
+    policy,
+    dynamic,
+    staticAssignments,
+    promotedHeads,
+  } = context;
+
+  const fullTokenBytes = computeKvBytes(model);
+  const selectedLayerCount = getSelectedLayerCount(policy);
+  const promotedHeadCount = promotedHeads.length;
+  const totalReads = dynamic.trace.reduce((acc, step) => acc + step.activeReadCount, 0);
+  const baselineCost = totalReads * policy.hbmLatency;
+  const staticPromotedTokens = staticAssignments.length;
+  const dynamicPromotedTokens = dynamic.finalResidents.length;
+  const budgetBytes = policy.sramBudget * fullTokenBytes;
+
+  const rows = [
+    {
+      name: "HBM only",
+      granularity: "none",
+      promotedTokens: 0,
+      promotedHeads: 0,
+      promotedLayers: 0,
+      sramBytesUsed: 0,
+      sramBudgetPercent: 0,
+      hbmReadsAvoided: 0,
+      latencyCost: baselineCost,
+      relativeSpeedup: 1,
+      notes: "Baseline with no SRAM placement.",
+    },
+    {
+      name: "Static whole-token SRAM",
+      granularity: "whole-token",
+      promotedTokens: staticPromotedTokens,
+      promotedHeads: model.kvHeads,
+      promotedLayers: model.layers,
+      sramBytesUsed: staticPromotedTokens * fullTokenBytes,
+      sramBudgetPercent: budgetBytes ? (staticPromotedTokens * fullTokenBytes) / budgetBytes * 100 : 0,
+      hbmReadsAvoided: dynamic.readsAvoidedWholeToken,
+      latencyCost: computeLatencyCost(
+        totalReads,
+        dynamic.readsAvoidedWholeToken,
+        1,
+        policy.hbmLatency,
+        policy.sramLatency,
+      ),
+      relativeSpeedup: 1,
+      notes: "Reference policy that promotes full-token KV for hot tokens.",
+    },
+    {
+      name: "Dynamic whole-token SRAM",
+      granularity: "whole-token",
+      promotedTokens: dynamicPromotedTokens,
+      promotedHeads: model.kvHeads,
+      promotedLayers: model.layers,
+      sramBytesUsed: dynamicPromotedTokens * fullTokenBytes,
+      sramBudgetPercent: budgetBytes ? (dynamicPromotedTokens * fullTokenBytes) / budgetBytes * 100 : 0,
+      hbmReadsAvoided: dynamic.readsAvoidedWholeToken,
+      latencyCost: computeLatencyCost(
+        totalReads,
+        dynamic.readsAvoidedWholeToken,
+        1,
+        policy.hbmLatency,
+        policy.sramLatency,
+      ),
+      relativeSpeedup: 1,
+      notes: "Dynamic promotion and eviction, but all heads/layers per token.",
+    },
+    {
+      name: "Dynamic per-head SRAM",
+      granularity: "per-head",
+      promotedTokens: dynamicPromotedTokens,
+      promotedHeads: promotedHeadCount,
+      promotedLayers: model.layers,
+      sramBytesUsed:
+        dynamicPromotedTokens *
+        computePromotionBytes(model, policy, promotedHeadCount, "per-head"),
+      sramBudgetPercent: budgetBytes
+        ? (dynamicPromotedTokens *
+            computePromotionBytes(model, policy, promotedHeadCount, "per-head")) /
+          budgetBytes *
+          100
+        : 0,
+      hbmReadsAvoided:
+        dynamic.readsAvoidedWholeToken *
+        computeCoverageRatio("per-head", model, promotedHeadCount, selectedLayerCount),
+      latencyCost: computeLatencyCost(
+        totalReads,
+        dynamic.readsAvoidedWholeToken,
+        computeCoverageRatio("per-head", model, promotedHeadCount, selectedLayerCount),
+        policy.hbmLatency,
+        policy.sramLatency,
+      ),
+      relativeSpeedup: 1,
+      notes: "Only promoted head slices occupy SRAM; same hot-token controller.",
+    },
+    {
+      name: "Dynamic per-head + layer-range SRAM",
+      granularity: "per-head-layer",
+      promotedTokens: dynamicPromotedTokens,
+      promotedHeads: promotedHeadCount,
+      promotedLayers: selectedLayerCount,
+      sramBytesUsed:
+        dynamicPromotedTokens *
+        computePromotionBytes(model, policy, promotedHeadCount, "per-head-layer"),
+      sramBudgetPercent: budgetBytes
+        ? (dynamicPromotedTokens *
+            computePromotionBytes(model, policy, promotedHeadCount, "per-head-layer")) /
+          budgetBytes *
+          100
+        : 0,
+      hbmReadsAvoided:
+        dynamic.readsAvoidedWholeToken *
+        computeCoverageRatio("per-head-layer", model, promotedHeadCount, selectedLayerCount),
+      latencyCost: computeLatencyCost(
+        totalReads,
+        dynamic.readsAvoidedWholeToken,
+        computeCoverageRatio("per-head-layer", model, promotedHeadCount, selectedLayerCount),
+        policy.hbmLatency,
+        policy.sramLatency,
+      ),
+      relativeSpeedup: 1,
+      notes: "Most selective mode: promoted head slices only inside the chosen layer range.",
+    },
+  ];
+
+  rows.forEach((row) => {
+    row.relativeSpeedup = row.latencyCost > 0 ? baselineCost / row.latencyCost : 1;
   });
 
-  const totalReads = trace.reduce((acc, row) => acc + row.sramReads + row.hbmReads, 0);
-  const sramReads = trace.reduce((acc, row) => acc + row.sramReads, 0);
-
-  return {
-    residentCount: resident.size,
-    latencyCost: trace.reduce((acc, row) => acc + row.actualCost, 0),
-    hitRate: totalReads ? sramReads / totalReads : 0,
-  };
+  return rows;
 }
 
-function simulateSpeculativeOverlay(tokens, dynamicResult) {
-  const trace = dynamicResult.trace.map((entry, index) => {
-    const residentBias = entry.residentTokenIds.length / Math.max(state.sramBudget, 1);
-    const sharedBias = entry.sharedHits / Math.max(entry.sramReads || 1, 1);
-    const acceptance = clamp(
-      state.draftAcceptance + residentBias * 0.15 + sharedBias * 0.1 - (index % 3) * 0.03,
-      0,
-      0.98,
-    );
-    const accepted = acceptance >= 0.5;
-    const verifierSaved = accepted
-      ? Math.round((entry.sramReads * state.verifierReuse + entry.sharedHits) * (state.hbmLatency - state.sramLatency))
-      : 0;
-    return {
-      step: entry.step,
-      accepted,
-      acceptance,
-      verifierSaved,
-      reusedTokens: entry.residentTokenIds
-        .slice(0, Math.min(3, entry.residentTokenIds.length))
-        .map((tokenId) => tokens[tokenId].label),
-    };
-  });
-
-  return {
-    trace,
-    totalSaved: trace.reduce((acc, row) => acc + row.verifierSaved, 0),
-    acceptedSteps: trace.filter((row) => row.accepted).length,
-  };
-}
-
-function renderHeadProfiles(heads) {
+function renderHeadProfiles(headProfiles) {
   const container = document.getElementById("headProfiles");
   container.innerHTML = "";
-  heads.forEach((head) => {
+
+  headProfiles.forEach((head) => {
     const card = document.createElement("div");
-    card.className = "headCard";
+    card.className = `headCard${head.eligible ? "" : " is-disabled"}`;
+    card.dataset.headId = head.id;
     card.innerHTML = `
       <div class="headCardHeader">
         <strong>${head.label}</strong>
         <span class="badge ${head.profile}">${head.profile}</span>
       </div>
-      <p class="subtle">${
-        head.profile === "sink"
-          ? "Prefers anchor and shared-prefix tokens. Strong fit for sink-aware promotion."
-          : head.profile === "local"
-            ? "Prefers recent context. Often favors HBM fallback unless hot windows are promoted."
-            : "Reads broadly across context. Useful stress case for limited SRAM capacity."
-      }</p>
+      <p class="subtle">${head.description}</p>
+      <div class="headMeta">
+        <span>Contribution: <strong>${head.sinkScoreContribution.toFixed(3)}</strong></span>
+        <span>Eligible: <strong>${head.eligible ? "yes" : "no"}</strong></span>
+        <span>Status: <strong>${head.promoted ? "promoted" : "not promoted"}</strong></span>
+        <span>Default: <strong>${head.defaultEligible ? "eligible" : "off"}</strong></span>
+      </div>
     `;
+    card.addEventListener("click", () => toggleHeadEligibility(head.id));
     container.appendChild(card);
   });
 }
 
-function renderBenchmark(baseline, staticPolicy, dynamicResult) {
+function renderHeadHeatmap(headProfiles, layerBuckets, granularity) {
+  const container = document.getElementById("headHeatmap");
+  container.innerHTML = "";
+
+  const header = document.createElement("div");
+  header.className = "heatmapHeader";
+  header.style.gridTemplateColumns = `90px repeat(${headProfiles.length}, minmax(0, 1fr))`;
+  header.innerHTML = `<div class="heatmapHeaderLabel">Layer bucket</div>`;
+
+  headProfiles.forEach((head) => {
+    const cell = document.createElement("div");
+    cell.className = `heatHead${head.eligible ? " active" : ""}`;
+    cell.textContent = head.label;
+    cell.title = `Toggle eligibility for ${head.label}`;
+    cell.addEventListener("click", () => toggleHeadEligibility(head.id));
+    header.appendChild(cell);
+  });
+  container.appendChild(header);
+
+  layerBuckets.forEach((bucket) => {
+    const row = document.createElement("div");
+    row.className = "heatmapRow";
+    row.style.gridTemplateColumns = `90px repeat(${headProfiles.length}, minmax(0, 1fr))`;
+
+    const label = document.createElement("div");
+    label.className = "heatmapRowLabel";
+    label.textContent = bucket.label;
+    row.appendChild(label);
+
+    headProfiles.forEach((head) => {
+      const intensityItem = head.layerIntensities.find((item) => item.bucketId === bucket.id);
+      const value = intensityItem ? intensityItem.intensity : 0;
+      const classes = ["heatCell"];
+      if (head.promoted && head.eligible && (granularity !== "per-head-layer" || intensityItem.layerWeight > 0)) {
+        classes.push("promoted");
+      } else if (value >= 1.05) {
+        classes.push("high");
+      } else if (value >= 0.65) {
+        classes.push("medium");
+      } else {
+        classes.push("low");
+      }
+
+      const cell = document.createElement("div");
+      cell.className = classes.join(" ");
+      cell.textContent = value.toFixed(2);
+      cell.title = `${head.label}, layers ${bucket.label}, intensity ${value.toFixed(3)}`;
+      cell.addEventListener("click", () => toggleHeadEligibility(head.id));
+      row.appendChild(cell);
+    });
+
+    container.appendChild(row);
+  });
+
+  renderLegend();
+}
+
+function renderLegend() {
+  const container = document.getElementById("heatmapLegend");
+  container.innerHTML = `
+    <span class="legendItem low">Low</span>
+    <span class="legendItem medium">Medium</span>
+    <span class="legendItem high">High</span>
+    <span class="legendItem promoted">Promoted</span>
+  `;
+}
+
+function renderBenchmarkTable(rows, activeGranularity) {
   const container = document.getElementById("benchmarkTable");
   container.innerHTML = "";
-  const rows = [
-    {
-      name: "HBM-only baseline",
-      hitRate: baseline.hitRate,
-      latencyCost: baseline.latencyCost,
-      extra: "No promoted tokens",
-    },
-    {
-      name: "Static one-shot policy",
-      hitRate: staticPolicy.hitRate,
-      latencyCost: staticPolicy.latencyCost,
-      extra: `${staticPolicy.residentCount} fixed SRAM slots`,
-    },
-    {
-      name: "Dynamic EMA controller",
-      hitRate: dynamicResult.hitRate,
-      latencyCost: dynamicResult.trace.reduce((acc, row) => acc + row.actualCost, 0),
-      extra: `${dynamicResult.assignments.filter((token) => token.tier === "SRAM").length} final residents`,
-    },
-  ];
+
+  const header = document.createElement("div");
+  header.className = "benchmarkHeader";
+  header.innerHTML = `
+    <span>Mode</span>
+    <span>Promoted tokens</span>
+    <span>Promoted heads</span>
+    <span>Promoted layers</span>
+    <span>SRAM bytes used</span>
+    <span>SRAM budget %</span>
+    <span>HBM reads avoided</span>
+    <span>Latency cost</span>
+    <span>Speedup</span>
+    <span>Notes</span>
+  `;
+  container.appendChild(header);
 
   rows.forEach((row) => {
     const div = document.createElement("div");
-    div.className = "benchmarkRow";
+    div.className = `benchmarkRow${row.granularity === activeGranularity ? " highlight" : ""}`;
     div.innerHTML = `
-      <div class="rowSplit">
-        <strong>${row.name}</strong>
-        <span>${(row.hitRate * 100).toFixed(1)}% hit rate</span>
-      </div>
-      <div class="tinyBar">
-        <div class="sramHits" style="width:${(row.hitRate * 100).toFixed(2)}%"></div>
-        <div class="hbmHits" style="width:${(100 - row.hitRate * 100).toFixed(2)}%"></div>
-      </div>
-      <p class="subtle">Latency cost: ${row.latencyCost.toFixed(0)} | ${row.extra}</p>
+      <span><strong>${row.name}</strong></span>
+      <span>${formatNumber(row.promotedTokens, 0)}</span>
+      <span>${formatNumber(row.promotedHeads, 0)}</span>
+      <span>${formatNumber(row.promotedLayers, 0)}</span>
+      <span>${bytesToHuman(row.sramBytesUsed)}</span>
+      <span>${formatNumber(row.sramBudgetPercent, 1)}%</span>
+      <span>${formatNumber(row.hbmReadsAvoided, 1)}</span>
+      <span>${formatNumber(row.latencyCost, 1)}</span>
+      <span>${formatNumber(row.relativeSpeedup, 2)}x</span>
+      <span>${row.notes}</span>
     `;
     container.appendChild(div);
   });
 }
 
-function renderSpeculative(speculativeResult) {
-  const container = document.getElementById("speculativeTable");
-  container.innerHTML = "";
-  const intro = document.createElement("div");
-  intro.className = "benchmarkRow";
-  intro.innerHTML = `
-    <div class="rowSplit">
-      <strong>Accepted draft steps</strong>
-      <span>${speculativeResult.acceptedSteps} / ${speculativeResult.trace.length}</span>
-    </div>
-    <p class="subtle">Estimated verifier-side savings: ${speculativeResult.totalSaved.toFixed(0)} latency units</p>
-  `;
-  container.appendChild(intro);
+function renderEfficiencyCard(model, policy, promotedHeads, promotedTokens) {
+  const wholeTokenBytes = computeKvBytes(model);
+  const currentBytes = computePromotionBytes(model, policy, promotedHeads.length);
+  const reduction = wholeTokenBytes > 0 ? (1 - currentBytes / wholeTokenBytes) * 100 : 0;
+  const capacityIncrease = currentBytes > 0 ? wholeTokenBytes / currentBytes : 1;
 
-  speculativeResult.trace.slice(0, 8).forEach((entry) => {
-    const div = document.createElement("div");
-    div.className = "benchmarkRow";
-    div.innerHTML = `
-      <div class="rowSplit">
-        <strong>Step ${entry.step}</strong>
-        <span>${entry.accepted ? "accepted" : "rejected"} @ ${(entry.acceptance * 100).toFixed(0)}%</span>
-      </div>
-      <p class="subtle">Verifier savings: ${entry.verifierSaved} | Reused hot tokens: ${entry.reusedTokens.join(", ") || "none"}</p>
-    `;
-    container.appendChild(div);
-  });
-}
+  document.getElementById("wholeTokenBytes").textContent = `${bytesToHuman(wholeTokenBytes)} / token`;
+  document.getElementById("currentModeBytes").textContent = `${bytesToHuman(currentBytes)} / token`;
+  document.getElementById("footprintReduction").textContent = `${formatNumber(reduction, 1)}%`;
+  document.getElementById("capacityIncrease").textContent = `${formatNumber(capacityIncrease, 2)}x`;
 
-function renderFigureSummary(dynamicResult, speculativeResult) {
-  const container = document.getElementById("figureSummary");
-  container.innerHTML = "";
-  const cards = [
-    `SRAM budget: ${state.sramBudget} slots`,
-    `Final residents: ${dynamicResult.assignments.filter((token) => token.tier === "SRAM").map((token) => token.label).join(", ") || "none"}`,
-    `Shared prefix length: ${state.sharedPrefixLength}`,
-    `Speculative verifier savings: ${speculativeResult.totalSaved.toFixed(0)}`,
-  ];
-  cards.forEach((text) => {
-    const card = document.createElement("div");
-    card.className = "headCard";
-    card.innerHTML = `<p class="subtle">${text}</p>`;
-    container.appendChild(card);
-  });
+  document.getElementById("efficiencyNote").textContent =
+    policy.promotionGranularity === "whole-token"
+      ? "Whole-token mode keeps correctness simple but uses the most SRAM per promoted token."
+      : policy.promotionGranularity === "per-head"
+        ? `Promoting ${promotedHeads.length} of ${model.kvHeads} KV heads reduces per-token SRAM footprint while preserving selected hot slices.`
+        : `Promoting ${promotedHeads.length} of ${model.kvHeads} KV heads only across layers ${policy.promotedLayerStart}-${policy.promotedLayerEnd} compresses SRAM use further.`;
 }
 
 function renderTokenTable(tokens) {
@@ -561,134 +906,67 @@ function renderTokenTable(tokens) {
   });
 }
 
-function heatColor(value) {
-  const clamped = clamp(value, 0, 1);
-  const low = [247, 242, 234];
-  const high = [14, 95, 102];
-  const rgb = low.map((channel, index) =>
-    Math.round(channel + (high[index] - channel) * clamped),
-  );
-  return `rgb(${rgb[0]}, ${rgb[1]}, ${rgb[2]})`;
+function renderPolicySummary(data) {
+  const container = document.getElementById("policySummary");
+  const activeRow = data.benchmarkComparison.find((row) => row.granularity === state.promotionGranularity);
+  const selectedLayerCount = getSelectedLayerCount(state);
+
+  container.innerHTML = `
+    <div class="summaryRow"><span>Promotion granularity</span><strong>${document.getElementById("promotionGranularity").selectedOptions[0].textContent}</strong></div>
+    <div class="summaryRow"><span>Selected promoted heads</span><strong>${data.promotedHeads.map((head) => head.label).join(", ") || "none"}</strong></div>
+    <div class="summaryRow"><span>Selected layer range</span><strong>${state.promotedLayerStart}-${state.promotedLayerEnd} (${selectedLayerCount} layers)</strong></div>
+    <div class="summaryRow"><span>SRAM bytes used (active mode)</span><strong>${bytesToHuman(activeRow.sramBytesUsed)}</strong></div>
+    <div class="summaryRow"><span>SRAM budget utilization</span><strong>${formatNumber(activeRow.sramBudgetPercent, 1)}%</strong></div>
+    <div class="summaryRow"><span>Deterministic disclaimer</span><strong>Architecture simulator</strong></div>
+  `;
 }
 
-function renderHeatmap(aggregateRows) {
-  const container = document.getElementById("heatmap");
-  container.innerHTML = "";
-  aggregateRows.forEach((row) => {
-    const rowEl = document.createElement("div");
-    rowEl.className = "heatmapRow";
-    rowEl.style.gridTemplateColumns = `repeat(${row.length}, minmax(0, 1fr))`;
-    row.forEach((value, tokenIndex) => {
-      const cell = document.createElement("div");
-      cell.className = "heatCell";
-      cell.style.backgroundColor = heatColor(value / Math.max(...row, 0.001));
-      cell.title = `Token ${tokenIndex} aggregate attention ${value.toFixed(3)}`;
-      rowEl.appendChild(cell);
-    });
-    container.appendChild(rowEl);
-  });
+function toggleHeadEligibility(headId) {
+  ensureHeadEligibility();
+  headEligibilityOverrides[headId] = !headEligibilityOverrides[headId];
+  run();
 }
 
-function renderTimeline(tokens, timeline) {
-  const container = document.getElementById("timeline");
-  container.innerHTML = "";
-  const topTokens = [...tokens]
-    .sort((a, b) => b.sinkScore - a.sinkScore)
-    .slice(0, Math.min(5, tokens.length));
-
-  topTokens.forEach((token) => {
-    const row = document.createElement("div");
-    row.className = "timelineRow";
-    const track = timeline[token.id]
-      .map((value) => `<div class="timelineCell" style="background:${heatColor(value)}" title="${value.toFixed(3)}"></div>`)
-      .join("");
-    row.innerHTML = `
-      <div class="rowSplit">
-        <strong>${token.label}</strong>
-        <span>${token.sinkScore.toFixed(3)}</span>
-      </div>
-      <div class="timelineTrack">${track}</div>
-    `;
-    container.appendChild(row);
-  });
-}
-
-function renderTrace(trace, tokens, speculativeTrace) {
-  const container = document.getElementById("routingTrace");
-  container.innerHTML = "";
-  trace.forEach((entry, idx) => {
-    const total = entry.sramReads + entry.hbmReads || 1;
-    const sramWidth = (entry.sramReads / total) * 100;
-    const hbmWidth = (entry.hbmReads / total) * 100;
-    const labels = entry.events
-      .map((event) => {
-        const label = tokens[event.tokenId].label;
-        return `<span class="eventTag ${event.type}">${event.type}: ${label}</span>`;
-      })
-      .join("");
-    const spec = speculativeTrace[idx];
-
-    const row = document.createElement("div");
-    row.className = "traceRow";
-    row.innerHTML = `
-      <div class="traceHeader">
-        <span>Decode step ${entry.step}</span>
-        <span>Residents: ${entry.residentTokenIds.map((id) => tokens[id].label).join(", ") || "none"}</span>
-      </div>
-      <div class="traceBar">
-        <div class="sramHits" style="width:${sramWidth}%"></div>
-        <div class="hbmHits" style="width:${hbmWidth}%"></div>
-      </div>
-      <p class="subtle">SRAM reads: ${entry.sramReads} | HBM reads: ${entry.hbmReads} | Shared-prefix hits: ${entry.sharedHits} | Draft ${spec.accepted ? "accepted" : "rejected"} | Saved ${entry.saved.toFixed(0)} + ${spec.verifierSaved.toFixed(0)} speculative units</p>
-      <div class="eventTags">${labels || '<span class="eventTag">no controller events</span>'}</div>
-    `;
-    container.appendChild(row);
-  });
-}
-
-function renderSummary(assignments, dynamicResult, baseline, staticPolicy, speculativeResult) {
-  const sinkCount = assignments.filter((token) => token.tier === "SRAM").length;
-  const dynamicCost = dynamicResult.trace.reduce((acc, row) => acc + row.actualCost, 0);
-  const savedVsBaseline = baseline.latencyCost - dynamicCost;
-  const savedVsStatic = staticPolicy.latencyCost - dynamicCost;
-  const totalSramReads = dynamicResult.trace.reduce((acc, row) => acc + row.sramReads, 0);
-  const prefixLift = totalSramReads ? dynamicResult.sharedHits / totalSramReads : 0;
-
-  document.getElementById("sinkCount").textContent = String(sinkCount);
-  document.getElementById("readsAvoided").textContent = String(dynamicResult.readsAvoided);
-  document.getElementById("latencySaved").textContent = dynamicResult.latencySaved.toFixed(0);
-  document.getElementById("sramHitRate").textContent = `${(dynamicResult.hitRate * 100).toFixed(1)}%`;
-  document.getElementById("prefixLift").textContent = `${(prefixLift * 100).toFixed(1)}%`;
-  document.getElementById("speculativeSaved").textContent = speculativeResult.totalSaved.toFixed(0);
-
-  const promotedLabels = assignments
-    .filter((token) => token.tier === "SRAM")
-    .map((token) => token.label)
-    .join(", ") || "none";
-
-  document.getElementById("summaryText").textContent =
-    `Final SRAM residents: ${promotedLabels}. With ${state.tenantCount} simulated tenants sharing the first ` +
-    `${state.sharedPrefixLength} prompt tokens, the dynamic controller saved ${savedVsBaseline.toFixed(0)} latency units ` +
-    `versus an HBM-only baseline, ${savedVsStatic.toFixed(0)} versus a static one-shot placement policy, and an additional ` +
-    `${speculativeResult.totalSaved.toFixed(0)} verifier-side speculative units.`;
-}
-
-function exportJson() {
+function exportTrace() {
   if (!lastRun) {
     return;
   }
 
   const payload = {
-    exportedAt: new Date().toISOString(),
-    patentApplicationNumber: "202641062302",
-    filingJurisdiction: "India",
-    state,
-    benchmark: lastRun.benchmark,
-    heads: lastRun.heads,
-    tokens: lastRun.dynamicResult.assignments,
-    trace: lastRun.dynamicResult.trace,
-    timeline: lastRun.dynamicResult.timeline,
-    speculativeTrace: lastRun.speculativeResult.trace,
+    model: {
+      layers: state.layers,
+      kvHeads: state.kvHeads,
+      headDim: state.headDim,
+      bytesPerElement: state.bytesPerElement,
+    },
+    promotionPolicy: {
+      granularity: state.promotionGranularity,
+      promotedHeads: state.promotedHeads,
+      promotedLayerStart: state.promotedLayerStart,
+      promotedLayerEnd: state.promotedLayerEnd,
+      layerBoostMultiplier: state.layerBoostMultiplier,
+      threshold: state.sinkThreshold,
+      evictionThreshold: state.evictionThreshold,
+      emaAlpha: state.emaAlpha,
+      dwellSteps: state.dwellSteps,
+    },
+    headProfiles: lastRun.headProfiles.map((head) => ({
+      id: head.id,
+      profile: head.profile,
+      sinkScoreContribution: head.sinkScoreContribution,
+      eligible: head.eligible,
+      promoted: head.promoted,
+    })),
+    promotedEntries: lastRun.dynamic.assignments
+      .filter((token) => token.tier === "SRAM")
+      .map((token) => ({
+        tokenId: token.id,
+        tokenLabel: token.label,
+        sinkScore: token.sinkScore,
+        promotionCount: token.promotions,
+        evictionCount: token.evictions,
+      })),
+    benchmarkComparison: lastRun.benchmarkComparison,
   };
 
   const blob = new Blob([JSON.stringify(payload, null, 2)], {
@@ -697,116 +975,75 @@ function exportJson() {
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
-  link.download = "attention-sink-sram-trace.json";
+  link.download = "attention-sink-sram-benchmark-trace.json";
   document.body.appendChild(link);
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
 }
 
-function exportPatentFigure() {
-  if (!lastRun) {
-    return;
-  }
-
-  const residents = lastRun.dynamicResult.assignments
-    .filter((token) => token.tier === "SRAM")
-    .map((token) => token.label)
-    .join(", ") || "none";
-
-  const svg = `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="700" viewBox="0 0 1200 700">
-  <rect width="1200" height="700" fill="#fffdfa"/>
-  <rect x="40" y="40" width="240" height="90" rx="16" fill="#eef7f8" stroke="#0f5f67" stroke-width="3"/>
-  <text x="160" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">Prompt / Prefix</text>
-  <text x="160" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Shared prefix length: ${state.sharedPrefixLength}</text>
-
-  <rect x="340" y="40" width="300" height="130" rx="16" fill="#f7f2ea" stroke="#8a5b3f" stroke-width="3"/>
-  <text x="490" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">Placement Controller</text>
-  <text x="490" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">EMA alpha: ${state.emaAlpha}</text>
-  <text x="490" y="137" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Promote &gt; ${state.sinkThreshold}, Evict &lt; ${state.evictionThreshold}</text>
-
-  <rect x="720" y="40" width="220" height="110" rx="16" fill="#effaf2" stroke="#297a55" stroke-width="3"/>
-  <text x="830" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">SRAM Tier</text>
-  <text x="830" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Budget: ${state.sramBudget}</text>
-  <text x="830" y="137" text-anchor="middle" font-family="Georgia" font-size="16" fill="#5f5750">${residents}</text>
-
-  <rect x="960" y="40" width="200" height="110" rx="16" fill="#fff5ef" stroke="#b86a3a" stroke-width="3"/>
-  <text x="1060" y="82" text-anchor="middle" font-family="Georgia" font-size="28" fill="#171411">HBM Tier</text>
-  <text x="1060" y="112" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Latency: ${state.hbmLatency}</text>
-
-  <line x1="280" y1="85" x2="340" y2="85" stroke="#171411" stroke-width="3"/>
-  <line x1="640" y1="95" x2="720" y2="95" stroke="#171411" stroke-width="3"/>
-  <line x1="940" y1="95" x2="960" y2="95" stroke="#171411" stroke-width="3"/>
-
-  <rect x="80" y="240" width="420" height="180" rx="16" fill="#ffffff" stroke="#d9d0c2" stroke-width="2"/>
-  <text x="290" y="280" text-anchor="middle" font-family="Georgia" font-size="26" fill="#171411">Head Profiles</text>
-  <text x="290" y="320" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">${lastRun.heads.map((head) => `${head.label}:${head.profile}`).join(" | ")}</text>
-  <text x="290" y="355" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Tenants: ${state.tenantCount}</text>
-
-  <rect x="560" y="240" width="560" height="180" rx="16" fill="#ffffff" stroke="#d9d0c2" stroke-width="2"/>
-  <text x="840" y="280" text-anchor="middle" font-family="Georgia" font-size="26" fill="#171411">Measured Outcome</text>
-  <text x="840" y="320" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">HBM reads avoided: ${lastRun.dynamicResult.readsAvoided}</text>
-  <text x="840" y="350" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Dynamic latency saved: ${lastRun.dynamicResult.latencySaved.toFixed(0)}</text>
-  <text x="840" y="380" text-anchor="middle" font-family="Georgia" font-size="18" fill="#5f5750">Speculative verifier savings: ${lastRun.speculativeResult.totalSaved.toFixed(0)}</text>
-
-  <text x="600" y="520" font-family="Georgia" font-size="24" text-anchor="middle" fill="#171411">Application No. 202641062302 | Filed in India</text>
-  <text x="600" y="560" font-family="Georgia" font-size="18" text-anchor="middle" fill="#5f5750">Methods and Systems for Attention-Sink-Aware SRAM Placement of Key-Value State in Transformer Inference</text>
-</svg>`;
-
-  const blob = new Blob([svg], { type: "image/svg+xml" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "attention-sink-sram-patent-figure.svg";
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
+function applyStaticWholeTokenAssignments(tokens, dynamicAssignments) {
+  return dynamicAssignments
+    .filter((token) => token.sinkScore >= state.sinkThreshold)
+    .sort((a, b) => b.sinkScore - a.sinkScore)
+    .slice(0, state.sramBudget);
 }
 
 function run() {
-  if (state.sharedPrefixLength > state.promptLength) {
-    state.sharedPrefixLength = state.promptLength;
-  }
+  ensureLayerRange();
+  ensureHeadEligibility();
+  syncControlValues();
+
+  const model = {
+    layers: state.layers,
+    kvHeads: state.kvHeads,
+    headDim: state.headDim,
+    bytesPerElement: state.bytesPerElement,
+  };
 
   const tokens = generateTokens(state.promptLength, state.sharedPrefixLength);
-  const heads = generateHeadConfigs(state.headCount);
-  const attentionByHead = generateAttentionByHead(tokens, heads, state.decodeSteps, state.sinkStrength);
+  const layerBuckets = computeLayerBuckets(state.layers);
   const tenantWeights = generateTenantWeights(tokens, state.tenantCount, state.sharedPrefixLength);
-  const dynamicResult = simulateDynamicController(tokens, heads, attentionByHead, tenantWeights);
-  const baseline = simulateBaseline(dynamicResult.aggregateRows);
-  const staticPolicy = simulateStaticPolicy(tokens, dynamicResult.aggregateRows);
-  const speculativeResult = simulateSpeculativeOverlay(tokens, dynamicResult);
+  const headProfiles = computeHeadProfiles(tokens, layerBuckets, tenantWeights);
+  const promotedHeads = determinePromotedHeads(headProfiles, state);
+  const attentionByHead = generateAttentionByHead(tokens, headProfiles, state.decodeSteps);
+  const aggregateRows = aggregateAttention(attentionByHead, headProfiles, tenantWeights);
+  const dynamic = simulateDynamicController(tokens, aggregateRows);
+  const staticAssignments = applyStaticWholeTokenAssignments(tokens, dynamic.assignments);
+  const benchmarkComparison = computeBenchmarkComparison({
+    model,
+    policy: state,
+    dynamic,
+    staticAssignments,
+    promotedHeads,
+  });
 
-  renderSummary(dynamicResult.assignments, dynamicResult, baseline, staticPolicy, speculativeResult);
-  renderHeadProfiles(heads);
-  renderBenchmark(baseline, staticPolicy, dynamicResult);
-  renderSpeculative(speculativeResult);
-  renderFigureSummary(dynamicResult, speculativeResult);
-  renderTokenTable(dynamicResult.assignments);
-  renderHeatmap(dynamicResult.aggregateRows);
-  renderTimeline(dynamicResult.assignments, dynamicResult.timeline);
-  renderTrace(dynamicResult.trace, tokens, speculativeResult.trace);
+  renderHeadProfiles(headProfiles);
+  renderHeadHeatmap(headProfiles, layerBuckets, state.promotionGranularity);
+  renderBenchmarkTable(benchmarkComparison, state.promotionGranularity);
+  renderEfficiencyCard(model, state, promotedHeads, dynamic.finalResidents.length);
+  renderTokenTable(dynamic.assignments);
+  renderPolicySummary({ benchmarkComparison, promotedHeads, dynamic });
+
+  const activeRow = benchmarkComparison.find((row) => row.granularity === state.promotionGranularity);
+  document.getElementById("modeLabel").textContent =
+    document.getElementById("promotionGranularity").selectedOptions[0].textContent;
+  document.getElementById("promotedTokenCount").textContent = formatNumber(activeRow.promotedTokens, 0);
+  document.getElementById("selectedHeadCount").textContent = formatNumber(activeRow.promotedHeads, 0);
+  document.getElementById("selectedLayerCount").textContent = formatNumber(activeRow.promotedLayers, 0);
+  document.getElementById("readsAvoided").textContent = formatNumber(activeRow.hbmReadsAvoided, 1);
+  document.getElementById("relativeSpeedup").textContent = `${formatNumber(activeRow.relativeSpeedup, 2)}x`;
 
   lastRun = {
-    heads,
-    benchmark: {
-      baseline,
-      staticPolicy,
-      dynamic: {
-        latencyCost: dynamicResult.trace.reduce((acc, row) => acc + row.actualCost, 0),
-        hitRate: dynamicResult.hitRate,
-      },
-      speculative: {
-        totalSaved: speculativeResult.totalSaved,
-        acceptedSteps: speculativeResult.acceptedSteps,
-      },
-    },
-    dynamicResult,
-    speculativeResult,
+    model,
+    headProfiles,
+    dynamic,
+    benchmarkComparison,
+    promotedHeads,
   };
 }
 
 bindControls();
+ensureHeadEligibility();
+syncControlValues();
 run();

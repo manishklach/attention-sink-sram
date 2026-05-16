@@ -1,27 +1,27 @@
-# Attention-Sink SRAM Demo
+# Attention-Sink SRAM
 
-This repo is a small, dependency-free simulator and visual explainer for the patent concept around `attention-sink-aware placement of transformer KV state into a high-speed memory tier`.
+This repo is a dependency-free architecture simulator and visual explainer for `attention-sink-aware placement of transformer KV state into a high-speed memory tier`.
 
-It is designed to answer one question clearly:
+It is built around one practical question:
 
-`What happens if we detect sink tokens, promote their KV state into SRAM, and service decode-time reads from that fast tier instead of always reading from HBM/DRAM?`
+`What changes when SRAM promotion becomes selective at the head and layer level instead of promoting entire token KV state?`
 
 ## Overview
 
-This project is a systems-architecture demo for the patented idea that a transformer inference runtime can:
+This project supports explanation of a transformer inference runtime that can:
 
-- detect high-reuse `attention-sink` tokens,
-- promote their KV state into a high-speed memory tier such as `SRAM`,
-- route decode-time reads through a fast-path bypass, and
-- improve token-latency economics without requiring the entire KV cache to fit in SRAM.
+- observe repeated attention into sink-heavy tokens and shared prefixes
+- classify hot KV state using thresholded sink scores and EMA updates
+- migrate selected entries into a fast memory tier such as `SRAM`
+- route decode-time reads through a fast-path bypass instead of always reading from `HBM`
+- compare whole-token promotion against `per-head` and `per-head + layer-range` slice promotion
 
-The simulator is intentionally lightweight and browser-native. It is designed to help explain the invention to:
+The result is a stronger architecture artifact for:
 
-- patent counsel
-- systems architects
-- accelerator teams
-- investors and technical reviewers
-- collaborators exploring heterogeneous inference
+- patent counsel and patent drafting support
+- accelerator and systems architecture discussions
+- technical investor walkthroughs
+- heterogeneous inference design reviews
 
 ## Patent reference
 
@@ -29,70 +29,123 @@ The simulator is intentionally lightweight and browser-native. It is designed to
 - Title: `Methods and Systems for Attention-Sink-Aware SRAM Placement of Key-Value State in Transformer Inference`
 - Filed in: `India`, through the Indian Patent Office patent e-filing system
 
-## What this demo shows
+## What the simulator now covers
 
-- A toy prompt with prefix tokens and later content tokens
-- Synthetic multi-head attention behavior with sink-heavy, local, and retrieval-biased heads
-- Dynamic sink-score computation using an EMA-based controller
-- Promotion and eviction of selected token KV entries into and out of an SRAM tier
-- Multi-tenant shared-prefix behavior showing why repeated system prompts are natural SRAM candidates
-- Decode-time routing of reads between `SRAM` and `HBM`
-- Benchmark comparison between HBM-only, static one-shot placement, and dynamic controller policies
-- Exportable JSON traces for figure generation, patent exhibits, or later analysis
-- Estimated reduction in HBM reads and latency cost
+- promotion granularity modes:
+  - `Whole token KV`
+  - `Per-head KV slices`
+  - `Per-head + layer-range KV slices`
+- deterministic SRAM byte calculations using:
+  - `layers`
+  - `kvHeads`
+  - `headDim`
+  - `bytesPerElement`
+  - `promotedHeads`
+  - `promotedLayerStart`
+  - `promotedLayerEnd`
+- synthetic per-head behavior with profiles:
+  - `sink-heavy`
+  - `local`
+  - `retrieval-biased`
+  - `recency-biased`
+  - `diffuse`
+- layer-range weighting through a boost multiplier
+- dynamic EMA-based promotion and eviction
+- comparative benchmark rows for:
+  - `HBM only`
+  - `Static whole-token SRAM`
+  - `Dynamic whole-token SRAM`
+  - `Dynamic per-head SRAM`
+  - `Dynamic per-head + layer-range SRAM`
+- an interactive head/layer heatmap with promotion toggles
+- exportable JSON traces containing model, policy, head profile, promoted entry, and benchmark comparison data
+
+## Why per-head promotion matters
+
+Whole-token KV promotion is easy to explain, but it over-allocates SRAM because every head and every layer is promoted together.
+
+Per-head promotion is closer to the real efficiency story:
+
+- if `3` of `8` KV heads are promoted, only those hot slices consume SRAM
+- that reduces per-token SRAM usage by roughly `62.5%`
+- the same SRAM budget can hold about `2.67x` more promoted sink entries
+
+With the default model geometry:
+
+- whole-token bytes per token = `2 * 80 * 8 * 128 * 2 = 327,680 B`
+- per-head bytes per token = `2 * 80 * 3 * 128 * 2 = 122,880 B`
+- reduction = `62.5%`
+
+Layer-range selection pushes this further by only promoting selected heads across a chosen subset of layers.
 
 ## Repo contents
 
-- `index.html` - the interactive demo UI
-- `styles.css` - styling for the explainer and charts
-- `app.js` - simulation logic and rendering
-
-## Maintainer
-
-- `Manish KL`
+- `index.html` - browser-native simulator UI
+- `styles.css` - layout, panels, heatmap, and benchmark styling
+- `app.js` - deterministic simulation logic and JSON export
+- `docs/architecture.md` - architecture flow and memory-tier explanation
+- `docs/benchmark-methodology.md` - assumptions and benchmark model
+- `docs/claim-map.md` - feature-to-patent-concept mapping
+- `LICENSE` - MIT license
 
 ## How to use
 
 Open [index.html](./index.html) directly in a browser.
 
-No build step or package manager is required.
-
-## Demo model
-
-This is not a full transformer implementation. It is a deterministic systems simulator that focuses on:
-
-1. identifying sink tokens from attention reuse,
-2. modeling multiple attention-head profiles,
-3. migrating their KV state into a fast memory tier,
-4. dynamically evicting cooled entries when SRAM is full, and
-5. routing future reads through an SRAM bypass path, and
-6. showing how shared prefixes across concurrent tenants amplify the value of fast-tier placement.
-
-That makes it useful for:
-
-- patent explanation
-- architecture discussions
-- investor or attorney walkthroughs
-- early product thinking
+No build step, package manager, or external dependency is required.
 
 ## Main controls
 
+- `Promotion granularity`
 - `Prompt length`
 - `Decode steps`
-- `Head count`
 - `Concurrent tenants`
 - `Shared prefix length`
+- `Layers`
+- `KV heads`
+- `Head dimension`
+- `Bytes per element`
+- `Promoted heads`
+- `Promoted layer start`
+- `Promoted layer end`
+- `Layer boost multiplier`
 - `Promotion threshold`
 - `Eviction threshold`
 - `EMA alpha`
 - `Dwell steps`
-- `SRAM budget`
+- `SRAM token budget`
 - `Sink strength`
-- `HBM latency` and `SRAM latency`
+- `HBM latency`
+- `SRAM latency`
 
-## Suggested next extensions
+## Docs
 
-- add speculative decoding overlays
-- add per-head slice promotion instead of whole-token promotion
-- add trace replay for side-by-side controller comparisons
-- add a patent-figure export mode
+- [Architecture](./docs/architecture.md)
+- [Benchmark methodology](./docs/benchmark-methodology.md)
+- [Claim-support map](./docs/claim-map.md)
+
+## Screenshot placeholder
+
+Suggested captures for the repo home page:
+
+- hero and control panel
+- SRAM efficiency card showing whole-token vs per-head bytes
+- head/layer heatmap with promoted slices highlighted
+- comparative benchmark table with the active policy row highlighted
+
+## Maintainer
+
+- `Manish KL`
+
+## Disclaimer
+
+This repository is a `deterministic architecture simulator`, not a production transformer runtime or a full-model benchmark.
+
+It is intended to support explanation of:
+
+- sink-score-driven promotion
+- SRAM vs HBM tiering
+- per-head and per-layer placement tradeoffs
+- decode-time routing and estimated read avoidance
+
+It does `not` claim cycle-accurate hardware timing, exact model quality impact, or production inference throughput.
