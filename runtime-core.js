@@ -185,6 +185,8 @@
     telemetryHistory: [],
     stressEvents: {},
     importedRuntimeTrace: null,
+    thesisModeActive: true,
+    thesisStep: 0,
   };
 
   sim.deviceProfiles = {

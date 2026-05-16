@@ -727,9 +727,24 @@ button.secondary {
   background: linear-gradient(180deg, #fff, #f9f5ee);
 }
 
+.thesisMuted {
+  opacity: 0.84;
+}
+
+.thesisFocus {
+  border-color: rgba(14, 95, 102, 0.45);
+  box-shadow:
+    0 14px 34px rgba(14, 95, 102, 0.08),
+    inset 0 0 0 1px rgba(14, 95, 102, 0.12);
+}
+
 .archLine {
   stroke: rgba(14, 95, 102, 0.45);
   stroke-width: 2.5;
+}
+
+.archLine.warm {
+  stroke: rgba(139, 74, 46, 0.5);
 }
 
 .archBlock rect {
@@ -754,6 +769,17 @@ button.secondary {
   fill: var(--muted);
   font-size: 12px;
   font-weight: 500;
+}
+
+.archTitle {
+  fill: var(--ink);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.archCaption {
+  fill: var(--muted);
+  font-size: 12px;
 }
 
 @media (max-width: 1300px) {

@@ -361,6 +361,122 @@
     `;
   }
 
+  function renderThesisMode(snapshot) {
+    const panel = document.getElementById("thesisModePanel");
+    const button = document.getElementById("toggleThesisMode");
+    const progress = document.getElementById("thesisProgress");
+    const callouts = document.getElementById("thesisCallouts");
+    document.querySelectorAll(".thesisFocus").forEach((el) => el.classList.remove("thesisFocus"));
+
+    if (!sim.memory.thesisModeActive) {
+      panel.classList.add("thesisMuted");
+      button.textContent = "Enable Thesis Mode";
+      progress.innerHTML = `<div class="sharedStat"><span>Mode</span><strong>Off</strong></div>`;
+      callouts.innerHTML = `<div class="stackEmpty">Enable Thesis Mode to walk through the architecture thesis.</div>`;
+      return;
+    }
+
+    panel.classList.remove("thesisMuted");
+    button.textContent = "Disable Thesis Mode";
+    const step = sim.thesis.current();
+    progress.innerHTML = `
+      <div class="sharedStat"><span>Step</span><strong>${sim.memory.thesisStep + 1} / ${sim.thesis.steps.length}</strong></div>
+      <div class="sharedStat"><span>Thesis</span><strong>${step.title}</strong></div>
+      <div class="sharedStat"><span>Claim</span><strong>${step.targets.length} architectural surfaces</strong></div>
+    `;
+    callouts.innerHTML = `
+      <div class="stackItem">
+        <strong>${step.title}</strong>
+        <span>${step.body}</span>
+      </div>
+      <div class="stackItem">
+        <strong>Design principle</strong>
+        <span>${[
+          "Deterministic execution over opportunistic caching.",
+          "Promotion is treated as scheduling rather than a passive cache reaction.",
+          "Compiler planning and runtime adaptation cooperate inside bounded legality windows.",
+          "Replay-safe decode windows constrain when state may change.",
+          "Topology and fabric costs are part of the memory model.",
+          "Memory follows an explicit lifecycle with visible legality boundaries.",
+        ][sim.memory.thesisStep]}</span>
+      </div>
+      ${step.callouts.map((item) => `<div class="stackItem"><span>${item}</span></div>`).join("")}
+    `;
+    step.targets.forEach((id) => {
+      const el = document.getElementById(id);
+      if (el) {
+        (el.closest(".panel") || el).classList.add("thesisFocus");
+      }
+    });
+  }
+
+  function renderFormalDiagrams(snapshot) {
+    const currentStep = sim.memory.thesisStep;
+    document.getElementById("formalExportSummary").innerHTML = `
+      <div class="sharedStat"><span>Execution regions</span><strong>${snapshot.compilerPlan.regions.length}</strong></div>
+      <div class="sharedStat"><span>Lifecycle phases</span><strong>11</strong></div>
+      <div class="sharedStat"><span>Replay checkpoints</span><strong>${snapshot.compilerPlan.checkpoints.length}</strong></div>
+      <div class="sharedStat"><span>Residency epochs</span><strong>${snapshot.orchestrator.windows.length}</strong></div>
+    `;
+
+    const executionSvg = document.getElementById("executionModelSvg");
+    executionSvg.innerHTML = `
+      <defs>
+        <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="rgba(14, 95, 102, 0.55)"></path>
+        </marker>
+      </defs>
+      <text x="30" y="36" class="archTitle">Execution model: bounded regions with replay checkpoints and adaptation barriers</text>
+      ${snapshot.compilerPlan.regions.map((region, index) => {
+      const x = 30 + index * 285;
+      return `
+        <g class="archBlock ${sim.memory.thesisModeActive && currentStep === Math.min(3, index + 2) ? "active" : ""}">
+          <rect x="${x}" y="66" width="240" height="82" rx="18"></rect>
+          <text x="${x + 16}" y="96">${region.name}</text>
+          <text x="${x + 16}" y="118" class="archSub">${region.type}</text>
+          <text x="${x + 16}" y="138" class="archSub">window ${region.start}-${region.end}</text>
+        </g>
+        ${index < snapshot.compilerPlan.regions.length - 1 ? `<line class="archLine" x1="${x + 240}" y1="107" x2="${x + 285}" y2="107" marker-end="url(#arrow)"></line>` : ""}
+      `;
+    }).join("")}
+      <text x="30" y="196" class="archCaption">Compile-time planning defines regions; runtime adaptation stays inside explicit barriers.</text>
+    `;
+
+    const phases = [
+      "creation",
+      "observation",
+      "classification",
+      "promotion",
+      "residency",
+      "replay protection",
+      "sharing",
+      "migration",
+      "compression",
+      "eviction",
+      "reclamation",
+    ];
+    const lifecycleSvg = document.getElementById("lifecycleSvg");
+    lifecycleSvg.innerHTML = `
+      <defs>
+        <marker id="arrowLifecycle" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+          <path d="M0,0 L8,4 L0,8 z" fill="rgba(139, 74, 46, 0.55)"></path>
+        </marker>
+      </defs>
+      <text x="18" y="36" class="archTitle">Memory lifecycle: explicit state transitions instead of implicit cache churn</text>
+      ${phases.map((phase, index) => {
+      const x = 18 + index * 106;
+      return `
+        <g class="archBlock ${sim.memory.thesisModeActive && currentStep === 5 ? "active" : ""}">
+          <rect x="${x}" y="82" width="94" height="62" rx="16"></rect>
+          <text x="${x + 10}" y="112" font-size="11">${phase}</text>
+        </g>
+        ${index < phases.length - 1 ? `<line class="archLine warm" x1="${x + 94}" y1="113" x2="${x + 106}" y2="113" marker-end="url(#arrowLifecycle)"></line>` : ""}
+      `;
+    }).join("")}
+      <text x="18" y="190" class="archCaption">Promotion, sharing, migration, and reclamation are modeled as legal lifecycle transitions.</text>
+    `;
+  }
+
   function renderAbi(abi) {
     document.getElementById("abiSummary").innerHTML = `
       <div class="sharedStat"><span>ABI mode</span><strong>${abi.mode}</strong></div>
@@ -1151,6 +1267,8 @@
   }
 
   function renderSnapshot(snapshot) {
+    renderThesisMode(snapshot);
+    renderFormalDiagrams(snapshot);
     fillSessionSelector(snapshot.sessions);
     renderDistributedTopology(snapshot.topology, snapshot.fabric);
     renderFabricAndDistributedRouting(snapshot.fabric, snapshot.distributedRouting);
@@ -1362,6 +1480,8 @@
     const micro = document.getElementById("microarchitectureSvg");
     const topo = document.getElementById("topologySvg");
     const compilerPlan = document.getElementById("compilerPlanSvg");
+    const executionModel = document.getElementById("executionModelSvg");
+    const lifecycle = document.getElementById("lifecycleSvg");
     const downloadSvg = (element, name) => {
       const link = document.createElement("a");
       link.href = URL.createObjectURL(new Blob([element.outerHTML], { type: "image/svg+xml" }));
@@ -1372,6 +1492,8 @@
     downloadSvg(micro, "paper-figure-microarchitecture.svg");
     downloadSvg(topo, "paper-figure-distributed-topology.svg");
     downloadSvg(compilerPlan, "paper-figure-compiler-plan.svg");
+    downloadSvg(executionModel, "paper-figure-execution-model.svg");
+    downloadSvg(lifecycle, "paper-figure-memory-lifecycle.svg");
   }
 
   function runSimulation() {
@@ -1538,6 +1660,18 @@
     document.getElementById("detachShared").addEventListener("click", () => attachSharedPrefix(false));
     document.getElementById("generateSnapshot").addEventListener("click", () => sim.exporter.exportSnapshot());
     document.getElementById("generatePaperFigures").addEventListener("click", generatePaperFigures);
+    document.getElementById("toggleThesisMode").addEventListener("click", () => {
+      sim.thesis.toggle();
+      runSimulation();
+    });
+    document.getElementById("prevThesisStep").addEventListener("click", () => {
+      sim.thesis.prev();
+      runSimulation();
+    });
+    document.getElementById("nextThesisStep").addEventListener("click", () => {
+      sim.thesis.next();
+      runSimulation();
+    });
 
     document.getElementById("queueExperiment").addEventListener("click", queueCurrentExperiment);
     document.getElementById("runExperiment").addEventListener("click", runCurrentExperiment);

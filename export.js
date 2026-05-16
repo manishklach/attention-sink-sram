@@ -119,6 +119,8 @@
       downloadText("microarchitecture-view.svg", document.getElementById("microarchitectureSvg").outerHTML, "image/svg+xml");
       downloadText("compiler-plan.svg", document.getElementById("compilerPlanSvg").outerHTML, "image/svg+xml");
       downloadText("topology-view.svg", document.getElementById("topologySvg").outerHTML, "image/svg+xml");
+      downloadText("execution-model.svg", document.getElementById("executionModelSvg").outerHTML, "image/svg+xml");
+      downloadText("memory-lifecycle.svg", document.getElementById("lifecycleSvg").outerHTML, "image/svg+xml");
     },
   };
 })();

@@ -499,7 +499,7 @@
       </aside>
 
       <section class="content">
-        <div class="metricGrid">
+      <div class="metricGrid">
           <article class="metricCard">
             <span class="metricLabel">Runtime mode</span>
             <strong id="modeLabel">Whole token KV</strong>
@@ -524,6 +524,29 @@
             <span class="metricLabel">Relative speedup</span>
             <strong id="relativeSpeedup">1.00x</strong>
           </article>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel" id="thesisModePanel">
+            <h2>Architecture Thesis Mode</h2>
+            <p class="subtle">
+              A guided reading mode that explains the execution philosophy, residency model, compiler/runtime split,
+              topology-aware placement, and replay semantics behind this architecture.
+            </p>
+            <div class="buttonRow">
+              <button id="toggleThesisMode" class="secondary">Disable Thesis Mode</button>
+              <button id="prevThesisStep" class="secondary">Previous</button>
+              <button id="nextThesisStep" class="secondary">Next</button>
+            </div>
+            <div id="thesisProgress" class="telemetryCards"></div>
+            <div id="thesisCallouts" class="stackList"></div>
+          </div>
+          <div class="panel">
+            <h2>Formal Architecture Exports</h2>
+            <div class="telemetryCards" id="formalExportSummary"></div>
+            <svg id="executionModelSvg" class="architectureSvg" viewBox="0 0 1200 240" role="img" aria-label="Execution model diagram"></svg>
+            <svg id="lifecycleSvg" class="architectureSvg" viewBox="0 0 1200 240" role="img" aria-label="Memory lifecycle diagram"></svg>
+          </div>
         </div>
 
         <div class="gridPair">
@@ -939,6 +962,7 @@
   </main>
 
   <script src="runtime-core.js"></script>
+  <script src="thesis.js"></script>
   <script src="reproducibility.js"></script>
   <script src="persistence.js"></script>
   <script src="replay.js"></script>
