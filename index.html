@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Attention-Sink SRAM Demo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="eyebrow">Patent Demo Repo</div>
+      <h1>Attention-Sink-Aware SRAM KV Placement</h1>
+      <p class="lede">
+        This upgraded simulator models a dynamic placement controller: multiple attention heads behave
+        differently, sink scores evolve over time, KV entries are promoted or evicted from SRAM, and the
+        decode path chooses between a fast tier and HBM on every step.
+      </p>
+      <div class="heroMeta">
+        <span>Indian application: <strong>202641062302</strong></span>
+        <span>Focus: dynamic sink controller + head-wise behavior</span>
+      </div>
+    </section>
+
+    <section class="layout">
+      <aside class="panel controls">
+        <h2>Controller Inputs</h2>
+        <label>
+          <span>Prompt length</span>
+          <input id="promptLength" type="range" min="8" max="36" value="18">
+          <strong id="promptLengthValue">18</strong>
+        </label>
+        <label>
+          <span>Decode steps</span>
+          <input id="decodeSteps" type="range" min="8" max="36" value="18">
+          <strong id="decodeStepsValue">18</strong>
+        </label>
+        <label>
+          <span>Head count</span>
+          <input id="headCount" type="range" min="3" max="8" value="5">
+          <strong id="headCountValue">5</strong>
+        </label>
+        <label>
+          <span>Concurrent tenants</span>
+          <input id="tenantCount" type="range" min="1" max="12" value="4">
+          <strong id="tenantCountValue">4</strong>
+        </label>
+        <label>
+          <span>Shared prefix length</span>
+          <input id="sharedPrefixLength" type="range" min="1" max="8" value="4">
+          <strong id="sharedPrefixLengthValue">4</strong>
+        </label>
+        <label>
+          <span>Promotion threshold</span>
+          <input id="sinkThreshold" type="range" min="0.2" max="0.9" value="0.56" step="0.01">
+          <strong id="sinkThresholdValue">0.56</strong>
+        </label>
+        <label>
+          <span>Eviction threshold</span>
+          <input id="evictionThreshold" type="range" min="0.05" max="0.7" value="0.28" step="0.01">
+          <strong id="evictionThresholdValue">0.28</strong>
+        </label>
+        <label>
+          <span>EMA alpha</span>
+          <input id="emaAlpha" type="range" min="0.1" max="0.95" value="0.72" step="0.01">
+          <strong id="emaAlphaValue">0.72</strong>
+        </label>
+        <label>
+          <span>Dwell steps before eviction</span>
+          <input id="dwellSteps" type="range" min="1" max="8" value="3">
+          <strong id="dwellStepsValue">3</strong>
+        </label>
+        <label>
+          <span>SRAM budget (token slots)</span>
+          <input id="sramBudget" type="range" min="1" max="12" value="5">
+          <strong id="sramBudgetValue">5</strong>
+        </label>
+        <label>
+          <span>Sink strength</span>
+          <input id="sinkStrength" type="range" min="0.25" max="0.95" value="0.74" step="0.01">
+          <strong id="sinkStrengthValue">0.74</strong>
+        </label>
+        <label>
+          <span>HBM latency</span>
+          <input id="hbmLatency" type="range" min="6" max="36" value="18">
+          <strong id="hbmLatencyValue">18</strong>
+        </label>
+        <label>
+          <span>SRAM latency</span>
+          <input id="sramLatency" type="range" min="1" max="10" value="3">
+          <strong id="sramLatencyValue">3</strong>
+        </label>
+        <div class="buttonRow">
+          <button id="rerun">Rerun</button>
+          <button id="presetConservative" class="secondary">Conservative</button>
+          <button id="presetAggressive" class="secondary">Aggressive</button>
+          <button id="exportJson" class="secondary">Export JSON</button>
+        </div>
+      </aside>
+
+      <section class="content">
+        <div class="panel metrics">
+          <h2>Outcome Summary</h2>
+          <div class="metricGrid">
+            <article>
+              <span class="metricLabel">Final SRAM residents</span>
+              <strong id="sinkCount">0</strong>
+            </article>
+            <article>
+              <span class="metricLabel">HBM reads avoided</span>
+              <strong id="readsAvoided">0</strong>
+            </article>
+            <article>
+              <span class="metricLabel">Latency saved</span>
+              <strong id="latencySaved">0</strong>
+            </article>
+            <article>
+              <span class="metricLabel">SRAM hit rate</span>
+              <strong id="sramHitRate">0%</strong>
+            </article>
+            <article>
+              <span class="metricLabel">Shared-prefix lift</span>
+              <strong id="prefixLift">0%</strong>
+            </article>
+          </div>
+          <p class="summaryText" id="summaryText"></p>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Head Profiles</h2>
+            <p class="subtle">
+              Different heads contribute differently to the controller. Local heads prefer recent tokens, sink
+              heads prefer anchors, and retrieval heads spread attention more globally.
+            </p>
+            <div id="headProfiles" class="headProfiles"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Benchmark Snapshot</h2>
+            <p class="subtle">
+              Compare an HBM-only baseline, a static one-shot policy, and the dynamic EMA controller.
+            </p>
+            <div id="benchmarkTable" class="benchmarkTable"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Token Table</h2>
+          <p class="subtle">
+            Final sink score, current memory tier, and how often the controller promoted or evicted each token.
+          </p>
+          <div id="tokenTable" class="tokenTable"></div>
+        </div>
+
+        <div class="gridPair">
+          <div class="panel">
+            <h2>Aggregate Attention Heatmap</h2>
+            <p class="subtle">
+              Rows are decode steps. Columns are prompt tokens. Darker cells mean stronger aggregate attention
+              across heads.
+            </p>
+            <div id="heatmap" class="heatmap"></div>
+          </div>
+
+          <div class="panel">
+            <h2>Sink Score Timeline</h2>
+            <p class="subtle">
+              These bars show how the controller's EMA sink score evolves for the top promoted tokens.
+            </p>
+            <div id="timeline" class="timeline"></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <h2>Decode Routing Trace</h2>
+          <p class="subtle">
+            Each step shows SRAM hits versus HBM fallbacks, and whether the controller triggered promotions or
+            evictions at that step.
+          </p>
+          <div id="routingTrace" class="routingTrace"></div>
+        </div>
+
+        <div class="panel">
+          <h2>How It Maps to the Patent</h2>
+          <ol class="mapping">
+            <li>Per-head attention observations feed a sink score engine rather than a flat cache policy.</li>
+            <li>An EMA controller dynamically promotes hot tokens into SRAM and evicts them when they cool.</li>
+            <li>A mapping table and budget enforce limited SRAM capacity.</li>
+            <li>The decode path services fast-tier hits with a bypass rather than defaulting to HBM.</li>
+            <li>The same framework can be extended to per-head slices, multi-tenant quotas, and speculative decode state.</li>
+          </ol>
+        </div>
+      </section>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
