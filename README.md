@@ -1,73 +1,106 @@
 # KV Memory Orchestrator
 
-## Introduction
+## Simple idea
 
-KV Memory Orchestrator is a browser-based research simulator that shows how future AI inference systems could decide which parts of an LLM's memory should stay in fast memory, which parts can move to slower memory, and how those decisions can be made deterministically.
+Modern AI systems do not only spend time doing math. They also spend a lot of time moving memory around.
 
-The biggest benefit of the project is that it makes a hard systems question concrete: if future LLM serving becomes limited by moving KV cache data rather than only by raw compute, what should the runtime actually do about it?
+LLMs store previous tokens in a KV cache. As conversations and context windows grow, this memory becomes massive. But not all tokens matter equally. Some are repeatedly referenced, while others are rarely used again.
 
-In simpler terms, the benefit is this: it helps explain how an AI system might become faster, more stable, and easier to reason about by keeping the most important memory close at hand and pushing less important memory farther away.
+This project explores how an AI runtime could keep important KV memory in very fast memory and move less important memory to slower tiers.
 
-In practice, it helps readers see:
-
-- why some KV regions may deserve fast-memory residency while others do not
-- how deterministic placement, routing, and replay could work
-- how performance-oriented memory orchestration differs from protected-region modeling
-- how a future runtime might coordinate memory tiers, DMA movement, and execution boundaries
+Like a librarian keeping frequently used books on the front desk instead of walking to the back shelves every time.
 
 Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
 
-## What problem does this solve?
+## What does the demo actually do?
 
-Large language models do not only compute. During inference, they also remember previous tokens using a KV cache.
+This is a browser-based research simulator.
 
-As context windows grow, that KV cache becomes huge. Reading and moving that memory can become expensive, especially when the model repeatedly looks back at only a small subset of earlier tokens.
+It shows how a future inference runtime could:
 
-Not every token is equally important. Some tokens, often called attention sinks, are repeatedly attended to across many decode steps. If those high-value KV regions can stay in faster memory while less important regions remain in bulk memory, the runtime may avoid unnecessary memory movement.
+- generate attention patterns
+- compute attention-sink scores
+- identify important KV regions
+- promote important KV into SRAM
+- leave less important KV in HBM/DRAM/slower tiers
+- route decode reads to the right tier
+- evict memory deterministically
+- replay memory decisions for analysis
 
-This project simulates how a runtime could identify, promote, route, evict, and replay those memory decisions.
+## What problem it solves
 
-An easy analogy is a librarian keeping the most-used books on the front desk while moving rarely used books to shelves in the back room.
+Long-context inference is increasingly limited by memory movement, bandwidth, latency, and energy.
 
-## Why memory orchestration matters
+Instead of treating all KV cache entries equally, this project explores orchestrating KV memory as part of execution.
 
-Modern accelerators already have multiple memory tiers.
+The runtime should know:
 
-SRAM is very fast but tiny. HBM is fast but still limited and power hungry. DRAM, pooled memory, or storage-backed spill tiers are larger but slower.
+- what memory matters
+- where it should live
+- when it should move
+- when it can be evicted
+- how future reads should be routed
 
-As models and context lengths grow, inference may become limited by moving KV data around, not only by matrix math. This repository explores memory placement as part of execution control rather than treating it as a background detail.
+## Why this is invention-oriented
+
+The idea is not simply "use a cache."
+
+The invention direction is about combining:
+
+- attention-derived sink scoring
+- explicit KV residency decisions
+- SRAM/HBM tier placement
+- decode-time routing
+- deterministic allocation and eviction
+- DMA-style movement
+- replayable orchestration traces
+- runtime/compiler coordination
+
+This repository does not claim to prove patentability or real hardware performance. It provides an executable simulator and documentation for exploring the technical architecture.
+
+## What this is not
+
+This is not:
+
+- a production LLM server
+- a replacement for vLLM or FlashAttention
+- a real CUDA/HBM/SRAM allocator
+- a hardware implementation
+- a production security system
+- a benchmark claiming real silicon speedups
 
 ## Simple flow
 
 ```text
-User Prompt / Context
+User prompt / long context
         ↓
-Transformer Attention
+Transformer attention
         ↓
-KV Cache grows
+KV cache grows
         ↓
-Sink Score identifies important KV regions
+Sink score identifies frequently used KV regions
         ↓
 Orchestrator decides:
-  SRAM / HBM / DRAM / Spill
+  SRAM / HBM / DRAM / spill
         ↓
-Decode reads from the right tier
+Decode reads from the selected tier
         ↓
-Trace can be replayed and audited
+Trace can be replayed and analyzed
 ```
 
-## What does the demo actually do?
+## Why it matters
 
-- generates synthetic attention patterns
-- computes cumulative sink scores
-- identifies important KV regions
-- simulates SRAM/HBM placement
-- models deterministic allocation and eviction
-- simulates DMA movement
-- shows decode-time routing
-- models multi-tenant prefix reuse
-- compares memory policies
-- exports traces, diagrams, and experiment results
+In simple terms, this matters because the runtime can spend less time dragging memory around and more time using the right memory at the right moment.
+
+This can help with:
+
+- less memory movement
+- lower bandwidth pressure
+- better long-context scaling
+- more predictable latency
+- better use of scarce fast memory
+- lower potential energy cost
+- more reproducible inference execution
 
 ## Example
 
@@ -79,22 +112,6 @@ In a long conversation, the model may repeatedly attend to:
 - shared prefix tokens
 
 Instead of treating every KV entry equally, this simulator shows how those high-value regions could be promoted into faster memory while less important regions remain in bulk memory.
-
-## Why is this invention-oriented?
-
-This project is invention-oriented because it explores a specific technical architecture:
-
-- attention-derived memory residency decisions
-- deterministic KV placement
-- SRAM/HBM tier orchestration
-- runtime-controlled DMA scheduling
-- replayable allocation and eviction
-- protected memory-region modeling
-- compiler/runtime coordination for memory movement
-
-The novelty being explored here is not simply "using a cache." The more interesting idea is treating KV memory as an orchestrated execution resource with explicit residency contracts, routing decisions, and deterministic replay.
-
-This repository does not claim to prove patentability. It provides an executable simulator and documentation for exploring the technical idea.
 
 ## Performance orchestration vs isolation modeling
 
@@ -115,15 +132,6 @@ Isolation-boundary modeling is about:
 - explicit mapping and export rules
 
 They are connected at the runtime architecture level, but they are not the same claim. One concerns performance-oriented memory placement. The other concerns how protected and untrusted memory objects could be modeled separately in a future system.
-
-## What this is not
-
-- Not a production LLM server
-- Not a replacement for vLLM or FlashAttention
-- Not a real CUDA/HBM/SRAM allocator yet
-- Not a hardware implementation
-- Not a security product
-- Not a benchmark claiming real hardware speedups
 
 ## How to read this repo
 
