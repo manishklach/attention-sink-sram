@@ -6,7 +6,7 @@ KV Memory Orchestrator is a browser-based research simulator that shows how futu
 
 The biggest benefit of the project is that it makes a hard systems question concrete: if future LLM serving becomes limited by moving KV cache data rather than only by raw compute, what should the runtime actually do about it?
 
-That is why someone should explore this repo. It gives hardware engineers, systems engineers, patent attorneys, technical investors, and curious developers a way to reason about KV memory as an execution problem instead of treating it as an invisible implementation detail.
+In simpler terms, the benefit is this: it helps explain how an AI system might become faster, more stable, and easier to reason about by keeping the most important memory close at hand and pushing less important memory farther away.
 
 In practice, it helps readers see:
 
