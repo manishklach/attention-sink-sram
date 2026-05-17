@@ -1,5 +1,131 @@
 # KV Memory Orchestrator
 
+## In one sentence
+
+KV Memory Orchestrator is a browser-based research simulator that shows how future AI inference systems could decide which parts of an LLM's memory should stay in fast memory, which parts can move to slower memory, and how those decisions can be made deterministically.
+
+Open [index.html](./index.html) directly in a browser. The project is dependency-free and requires no build step.
+
+Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
+
+## What problem does this solve?
+
+Large language models do not only compute. During inference, they also remember previous tokens using a KV cache.
+
+As context windows grow, that KV cache becomes huge. Reading and moving that memory can become expensive, especially when the model repeatedly looks back at only a small subset of earlier tokens.
+
+Not every token is equally important. Some tokens, often called attention sinks, are repeatedly attended to across many decode steps. If those high-value KV regions can stay in faster memory while less important regions remain in bulk memory, the runtime may avoid unnecessary memory movement.
+
+This project simulates how a runtime could identify, promote, route, evict, and replay those memory decisions.
+
+An easy analogy is a librarian keeping the most-used books on the front desk while moving rarely used books to shelves in the back room.
+
+## Why memory orchestration matters
+
+Modern accelerators already have multiple memory tiers.
+
+SRAM is very fast but tiny. HBM is fast but still limited and power hungry. DRAM, pooled memory, or storage-backed spill tiers are larger but slower.
+
+As models and context lengths grow, inference may become limited by moving KV data around, not only by matrix math. This repository explores memory placement as part of execution control rather than treating it as a background detail.
+
+## Simple flow
+
+```text
+User Prompt / Context
+        ↓
+Transformer Attention
+        ↓
+KV Cache grows
+        ↓
+Sink Score identifies important KV regions
+        ↓
+Orchestrator decides:
+  SRAM / HBM / DRAM / Spill
+        ↓
+Decode reads from the right tier
+        ↓
+Trace can be replayed and audited
+```
+
+## What does the demo actually do?
+
+- generates synthetic attention patterns
+- computes cumulative sink scores
+- identifies important KV regions
+- simulates SRAM/HBM placement
+- models deterministic allocation and eviction
+- simulates DMA movement
+- shows decode-time routing
+- models multi-tenant prefix reuse
+- compares memory policies
+- exports traces, diagrams, and experiment results
+
+## Example
+
+In a long conversation, the model may repeatedly attend to:
+
+- system prompt tokens
+- instruction tokens
+- important retrieved facts
+- shared prefix tokens
+
+Instead of treating every KV entry equally, this simulator shows how those high-value regions could be promoted into faster memory while less important regions remain in bulk memory.
+
+## Why is this invention-oriented?
+
+This project is invention-oriented because it explores a specific technical architecture:
+
+- attention-derived memory residency decisions
+- deterministic KV placement
+- SRAM/HBM tier orchestration
+- runtime-controlled DMA scheduling
+- replayable allocation and eviction
+- protected memory-region modeling
+- compiler/runtime coordination for memory movement
+
+The novelty being explored here is not simply "using a cache." The more interesting idea is treating KV memory as an orchestrated execution resource with explicit residency contracts, routing decisions, and deterministic replay.
+
+This repository does not claim to prove patentability. It provides an executable simulator and documentation for exploring the technical idea.
+
+## Performance orchestration vs isolation modeling
+
+This repository covers two related but distinct topics.
+
+Performance orchestration is about:
+
+- sink score
+- SRAM/HBM tiering
+- DMA scheduling
+- decode routing
+
+Isolation-boundary modeling is about:
+
+- protected reasoning or log regions
+- deterministic audit traces
+- separation of untrusted tool payloads
+- explicit mapping and export rules
+
+They are connected at the runtime architecture level, but they are not the same claim. One concerns performance-oriented memory placement. The other concerns how protected and untrusted memory objects could be modeled separately in a future system.
+
+## What this is not
+
+- Not a production LLM server
+- Not a replacement for vLLM or FlashAttention
+- Not a real CUDA/HBM/SRAM allocator yet
+- Not a hardware implementation
+- Not a security product
+- Not a benchmark claiming real hardware speedups
+
+## How to read this repo
+
+1. Start with the browser demo.
+2. Read the Core Algorithms section.
+3. Review deterministic allocation and memory-tier routing.
+4. Review orchestration IR and replay semantics.
+5. Review `docs/` for architecture and patent-support explanation.
+
+## Technical architecture
+
 Browser-native research platform exploring deterministic KV orchestration, memory-tier residency, and compiler/runtime coordination for future transformer inference systems.
 
 This repository is built around one architectural thesis:
@@ -7,10 +133,6 @@ This repository is built around one architectural thesis:
 future transformer inference may need a stronger memory model than caching and paging alone.
 
 The simulator therefore treats KV state as something that can be observed, classified, promoted, pinned, shared, migrated, replay-protected, compressed, and reclaimed under explicit orchestration rules. In that framing, memory movement becomes part of execution control rather than a purely reactive background mechanism.
-
-Open [index.html](./index.html) directly in a browser. The project is dependency-free and requires no build step.
-
-Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
 
 ## Core Algorithms Implemented
 
