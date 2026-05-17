@@ -1,6 +1,6 @@
 # KV Memory Orchestrator
 
-## Simple idea
+## Introduction
 
 Modern AI systems do not only spend time doing math. They also spend a lot of time moving memory around.
 
@@ -12,7 +12,7 @@ Like a librarian keeping frequently used books on the front desk instead of walk
 
 Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
 
-## What does the demo actually do?
+## What does the simulator actually do?
 
 This is a browser-based research simulator.
 
@@ -135,7 +135,7 @@ They are connected at the runtime architecture level, but they are not the same 
 
 ## How to read this repo
 
-1. Start with the browser demo.
+1. Start with the browser simulator.
 2. Read the Core Algorithms section.
 3. Review deterministic allocation and memory-tier routing.
 4. Review orchestration IR and replay semantics.
