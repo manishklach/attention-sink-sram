@@ -4,6 +4,17 @@
 
 KV Memory Orchestrator is a browser-based research simulator that shows how future AI inference systems could decide which parts of an LLM's memory should stay in fast memory, which parts can move to slower memory, and how those decisions can be made deterministically.
 
+The biggest benefit of the project is that it makes a hard systems question concrete: if future LLM serving becomes limited by moving KV cache data rather than only by raw compute, what should the runtime actually do about it?
+
+That is why someone should explore this repo. It gives hardware engineers, systems engineers, patent attorneys, technical investors, and curious developers a way to reason about KV memory as an execution problem instead of treating it as an invisible implementation detail.
+
+In practice, it helps readers see:
+
+- why some KV regions may deserve fast-memory residency while others do not
+- how deterministic placement, routing, and replay could work
+- how performance-oriented memory orchestration differs from protected-region modeling
+- how a future runtime might coordinate memory tiers, DMA movement, and execution boundaries
+
 Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
 
 ## What problem does this solve?
