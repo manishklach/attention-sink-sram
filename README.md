@@ -1,10 +1,8 @@
 # KV Memory Orchestrator
 
-## In one sentence
+## Introduction
 
 KV Memory Orchestrator is a browser-based research simulator that shows how future AI inference systems could decide which parts of an LLM's memory should stay in fast memory, which parts can move to slower memory, and how those decisions can be made deterministically.
-
-Open [index.html](./index.html) directly in a browser. The project is dependency-free and requires no build step.
 
 Release history is tracked in [CHANGELOG.md](./CHANGELOG.md).
 
@@ -123,6 +121,8 @@ They are connected at the runtime architecture level, but they are not the same 
 3. Review deterministic allocation and memory-tier routing.
 4. Review orchestration IR and replay semantics.
 5. Review `docs/` for architecture and patent-support explanation.
+
+To run the simulator locally, open [index.html](./index.html) in a browser. The project is dependency-free and requires no build step.
 
 ## Technical architecture
 
