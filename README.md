@@ -41,6 +41,41 @@ The runtime should know:
 - when it can be evicted
 - how future reads should be routed
 
+## Why this matters / Practical benefit
+
+The practical benefit is simple:
+
+Instead of treating every KV-cache entry equally, this simulator explores how an AI runtime could decide which memory is worth keeping close to compute and which memory can safely move farther away.
+
+That matters because large-scale inference is increasingly constrained by memory bandwidth, memory capacity, latency variance, and energy cost.
+
+Modern AI inference is increasingly limited by memory movement, not only compute. Long-context models generate massive KV caches, and moving KV data across SRAM, HBM, DRAM, CXL, pooled memory, or remote devices can consume bandwidth, latency, and energy very quickly.
+
+Not all KV memory is equally important. Some tokens are repeatedly used, while others are rarely touched again. If the runtime can identify high-value KV regions and keep them closer to compute, future inference systems may become faster, cheaper, more predictable, and more scalable.
+
+A system like this could eventually help future AI infrastructure achieve:
+
+- lower memory bandwidth pressure
+- fewer expensive KV transfers
+- better long-context scaling
+- more predictable latency
+- better use of scarce SRAM/HBM
+- lower energy per generated token
+- improved multi-tenant serving efficiency
+- more deterministic replay and debugging
+- smarter placement across local, pooled, and remote memory tiers
+
+In plain English:
+
+If an LLM keeps looking back at the same important information, the system should not keep fetching it from far away.
+
+It should recognize that memory as important, keep it nearby, and move less important memory out of the way.
+
+That is the core idea this simulator explores.
+
+> As AI context windows grow, the bottleneck shifts from only “how fast can we compute?” to “how intelligently can we move and place memory?”  
+> KV Memory Orchestrator explores that shift.
+
 ## Why this is invention-oriented
 
 The idea is not simply "use a cache."
